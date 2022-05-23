@@ -5,7 +5,7 @@ import torch
 from core.agent import Mario
 from core.log import MetricLogger
 from config.mario import game_config
-from core.cv2render import cv2render
+from core.utils import cv2render
 
 save_dir = Path("checkpoints") / datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
 save_dir.mkdir(parents=True)
@@ -25,6 +25,7 @@ if __name__ == '__main__':
         
         while True:
             # cv2render(state.__array__())
+            env.render()
             action = mario.action(state)
             
             next_state, reward, done, info = env.step(action)
@@ -40,5 +41,5 @@ if __name__ == '__main__':
                 break
         
         logger.log_episode()
-        if episode % 200 == 0:
+        if episode % 20 == 0:
             logger.record(episode, epsilon=mario.exploration_rate, step=mario.curr_step)

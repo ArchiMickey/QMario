@@ -1,11 +1,8 @@
-from collections import deque
-from pyexpat import model
-from matplotlib.pyplot import axis
 import torch
 import numpy as np
 import random
 
-from .DDQN import MarioNet
+from .model import MarioNet
 
 class Mario:
     def __init__(self, config):
@@ -86,10 +83,7 @@ class Mario:
         # EXPLOIT
         else:
             state = state.__array__()
-            if self.cuda:
-                state = torch.tensor(state).cuda()
-            else:
-                state = torch.tensor(state)
+            state = torch.FloatTensor(state).cuda() if self.cuda else torch.FloatTensor(state)
             state = state.unsqueeze(0)
             action_values = self.net(state, model='online')
             action_idx = torch.argmax(action_values,axis = 1).item()
@@ -104,21 +98,11 @@ class Mario:
     
     def cache(self, state, next_state, action, reward, done):
         # store the experience to self.memory(??)
-        state = state.__array__()
-        next_state = next_state.__array__()
-        
-        if self.cuda:
-            state = torch.tensor(state).cuda()
-            next_state = torch.tensor(next_state).cuda()
-            action = torch.tensor([action]).cuda()
-            reward = torch.tensor([reward]).cuda()
-            done = torch.tensor([done]).cuda()
-        else:
-            state = torch.tensor(state)
-            next_state = torch.tensor(next_state)
-            action = torch.tensor([action])
-            reward = torch.tensor([reward])
-            done = torch.tensor([done])
+        state = torch.FloatTensor(state).cuda() if self.cuda else torch.FloatTensor(state)
+        next_state = torch.FloatTensor(next_state).cuda() if self.cuda else torch.FloatTensor(next_state)
+        action = torch.LongTensor([action]).cuda() if self.cuda else torch.LongTensor([action])
+        reward = torch.DoubleTensor([reward]).cuda() if self.cuda else torch.DoubleTensor([reward])
+        done = torch.BoolTensor([done]).cuda() if self.cuda else torch.BoolTensor([done])
         
         self.memory.append((state, next_state, action, reward, done, ))
             

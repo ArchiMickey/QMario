@@ -6,10 +6,10 @@ class MarioNet(nn.Module):
         super().__init__()
         c, h, w = input_dim
         
-        # if h != 84:
-        #     raise ValueError(f"Expecting input height: 84, got: {h}")
-        # if w!= 84:
-        #     raise ValueError(f"Expecting input width: 84, got: {w}")
+        if h != 84:
+            raise ValueError(f"Expecting input height: 84, got: {h}")
+        if w!= 84:
+            raise ValueError(f"Expecting input width: 84, got: {w}")
         
         # Have no idea why the layers are designed as this
         self.online = nn.Sequential(
