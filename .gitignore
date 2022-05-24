@@ -1,2 +1,4 @@
 checkpoints
 __pycache__/
+lightning_logs
+*.ckpt
