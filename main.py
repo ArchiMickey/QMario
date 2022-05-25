@@ -1,20 +1,31 @@
-from core.model import DQNLightning
 import torch
-from pytorch_lightning import Trainer
+import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
-
-AVAIL_GPUS = min(1, torch.cuda.device_count())
-model = DQNLightning()
-wandb_logger = WandbLogger()
+from core.model import DDQNLightning
+from pytorch_lightning.callbacks import ModelCheckpoint
 
 
-trainer = Trainer(
-    gpus=AVAIL_GPUS,
-    max_epochs=40000,
-    val_check_interval=100,
-    gradient_clip_val=1.0,
-    logger=wandb_logger
+checkpoint_callback = ModelCheckpoint(
+    save_top_k=5,
+    monitor="global_step",
+    mode="max",
+    dirpath="model/",
+    filename="sample-qmario-{epoch:02d}",
+    every_n_train_steps=5e5,
 )
-# trainer.tune(model)
+
+model = DDQNLightning()
+wandb_logger = WandbLogger(name="qMario")
+trainer = pl.Trainer(
+    accelerator="gpu",
+    devices = 1 if torch.cuda.is_available() else None,
+    logger=wandb_logger,
+    max_epochs=40000,
+    # val_check_interval=50,
+    auto_lr_find=True,
+    callbacks=[checkpoint_callback],
+    enable_progress_bar=False,
+)
+
+trainer.tune(model)
 trainer.fit(model)
-trainer.save_checkpoint("Mario.ckpt")

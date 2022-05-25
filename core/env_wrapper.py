@@ -1,11 +1,7 @@
-import cv2
 import gym
 from gym.spaces import Box
+from skimage import transform
 import numpy as np
-
-import gym
-from gym.spaces import Box
-import cv2
 class ResizeObservation(gym.ObservationWrapper):
     def __init__(self, env, shape):
         super().__init__(env)
@@ -18,8 +14,12 @@ class ResizeObservation(gym.ObservationWrapper):
         self.observation_space = Box(low=0, high=255, shape=obs_shape, dtype=np.uint8)
 
     def observation(self, observation):
-        observation = cv2.resize(observation, self.shape, interpolation=cv2.INTER_AREA)
-        return observation
+        resize_obs = transform.resize(observation, self.shape)
+        # cast float back to uint8
+        resize_obs *= 255
+        resize_obs = resize_obs.astype(np.uint8)
+        return resize_obs
+
 
 class SkipFrame(gym.Wrapper):
     def __init__(self, env, skip):

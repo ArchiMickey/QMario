@@ -1,11 +1,11 @@
-from collections import deque, namedtuple
-from typing import Tuple
-
-from torch.utils.data.dataset import IterableDataset
+from collections import namedtuple
+from collections import deque
 import numpy as np
+from torch.utils.data.dataset import IterableDataset
+from typing import Iterator, Tuple
 
 Experience = namedtuple("Experience",
-                        field_names=['state', 'action', 'reward', 'done', 'new_state'],
+                        field_names=["state", "action", "reward", "done", "new_state"],
                         )
 
 class ReplayBuffer:
@@ -18,7 +18,7 @@ class ReplayBuffer:
     def append(self, experience: Experience):
         self.buffer.append(experience)
     
-    def sample(self, batch_size: int) -> Tuple:
+    def sample(self, batch_size: int):
         # print(len(self.buffer), batch_size)
         indices = np.random.choice(len(self.buffer), batch_size, replace=False)
         states, actions, rewards, dones, next_states = zip(*(self.buffer[idx] for idx in indices))
@@ -27,16 +27,23 @@ class ReplayBuffer:
             np.array(states),
             np.array(actions),
             np.array(rewards, dtype=np.float32),
-            np.array(dones, dtype=np.bool8),
+            np.array(dones, dtype=bool),
             np.array(next_states),
         )
 
 class RLDataset(IterableDataset):
-    def __init__(self, buffer: ReplayBuffer, sample_size: int = 200):
+    """Iterable Dataset containing the ExperienceBuffer which will be updated with new experiences during training.
+
+    Args:
+        buffer: replay buffer
+        sample_size: number of experiences to sample at a time
+    """
+
+    def __init__(self, buffer: ReplayBuffer, sample_size: int = 200) -> None:
         self.buffer = buffer
         self.sample_size = sample_size
-    
-    def __iter__(self) -> Tuple:
+
+    def __iter__(self) -> Iterator[Tuple]:
         states, actions, rewards, dones, new_states = self.buffer.sample(self.sample_size)
         for i in range(len(dones)):
-            yield states[i], actions[i], rewards[i], dones[i], new_states[i] 
+            yield states[i], actions[i], rewards[i], dones[i], new_states[i]

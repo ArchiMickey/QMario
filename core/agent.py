@@ -2,10 +2,9 @@ from typing import Tuple
 import gym, torch
 import numpy as np
 from torch import nn
-import wandb
-from .memory import ReplayBuffer, Experience
-
-class Mario:
+from .replay_buffer import ReplayBuffer, Experience
+from icecream import ic
+class Agent:
     def __init__(self, env: gym.Env, replay_buffer:ReplayBuffer) -> None:
         self.env = env
         self.replay_buffer = replay_buffer
@@ -19,27 +18,34 @@ class Mario:
         if np.random.random() < epsilon:
             action = self.env.action_space.sample()
         else:
-            state = torch.tensor([self.state])
+            state = np.array(self.state)
+            state = torch.Tensor(state)
+            
             if device not in ['cpu']:
                 state = state.cuda(device)
-            
-            q_value = net(state)
-            _, action = torch.max(q_value, dim=1)
+            # ic(state.shape)
+            state = state.unsqueeze(0)
+            # ic(state.shape)
+            q_values = net(state)
+            _, action = torch.max(q_values, dim=1)
             action = int(action.item())
+            
+            # ic()
+            # ic(action)
         
         return action
     
     @torch.no_grad()
-    def play_step(
-        self,
-        net: nn.Module,
-        epsilon: float = 0.0,
-        device: str = "cpu",
-    ) -> Tuple[float, bool]:
+    def play_step(self, net: nn.Module, epsilon: float = 0.0, device: str = "cpu") -> Tuple[float, bool]:
         action = self.get_action(net, epsilon, device)
         new_state, reward, done, _ = self.env.step(action)
         
-        self.env.render()
+        # self.env.render()
+        # plt.close()
+        # fig, ax = plt.subplots(1, 4)
+        # plt.figure(figsize=(20,8))
+        # for i in range(4):
+        #     ax[i].imshow(self.state[i], cmap='gray')
         
         exp = Experience(self.state, action, reward, done, new_state)
         self.replay_buffer.append(exp)

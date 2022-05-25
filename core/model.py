@@ -1,20 +1,18 @@
-from collections import OrderedDict
-import copy
-from turtle import forward
-from typing import List, Tuple
-import numpy as np
+import pytorch_lightning as pl
 import torch
-from torch import Tensor, nn, true_divide
+from torch import Tensor
+from typing import OrderedDict, List, Tuple
 from torch.optim import Adam, Optimizer
 from torch.utils.data import DataLoader
-from pytorch_lightning import LightningModule
-import wandb
-from .memory import ReplayBuffer, RLDataset
-from .agent import Mario
+from icecream import ic
+
+from .replay_buffer import ReplayBuffer, RLDataset
+from .agent import Agent
 from .utils import make_mario
 
+from torch import nn
 class DQN(nn.Module):
-    def __init__(self, obs_dim, n_actions, hidden_size:int = 128):
+    def __init__(self, obs_dim, n_actions):
         c, h, w = obs_dim
         
         if h != 84:
@@ -36,43 +34,10 @@ class DQN(nn.Module):
             nn.Linear(512, n_actions)
         )
     def forward(self, state):
+        # print(next(self.parameters()).is_cuda)
         return self.net(state.float())
 
-class DDQN(nn.Module):
-    def __init__(self, obs_dim, n_actions) -> None:
-        super().__init__()
-        c, h, w = obs_dim
-        
-        if h != 84:
-            raise ValueError(f"Expecting input height: 84, got: {h}")
-        if w != 84:
-            raise ValueError(f"Expecting input width: 84, got: {w}")
-
-        self.online = nn.Sequential(
-            nn.Conv2d(in_channels=c, out_channels=32, kernel_size=8, stride=4),
-            nn.ReLU(),
-            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2),
-            nn.ReLU(),
-            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1),
-            nn.ReLU(),
-            nn.Flatten(),
-            nn.Linear(3136, 512),
-            nn.ReLU(),
-            nn.Linear(512, n_actions),
-        )
-
-        self.target = copy.deepcopy(self.online)
-
-        # Q_target parameters are frozen.
-        for p in self.target.parameters():
-            p.requires_grad = False
-
-    def forward(self, input, model):
-        if model == "online":
-            return self.online(input)
-        elif model == "target":
-            return self.target(input)
-class DQNLightning(LightningModule):
+class DDQNLightning(pl.LightningModule):
     def __init__(
         self,
         batch_size: int = 32,
@@ -80,15 +45,16 @@ class DQNLightning(LightningModule):
         env: str = 'SuperMarioBros-v0',
         gamma: float = 0.9,
         sync_rate: int = 10000,
-        replay_size: int = 100000,
+        replay_size: int = 30000,
         warm_start_size: int = 1000,
         eps_decay: int = 0.99999975,
-        eps_start: float = 1.0,
+        eps_start: float = 1,
         eps_min: float = 0.1,
-        episode_length: int = 1000,
-        warm_start_steps: int = 100000,
+        episode_length: int = 10000,
+        warm_start_steps: int = 15000,
     ) -> None:
         super().__init__()
+        
         self.save_hyperparameters()
         
         self.env = make_mario(env)
@@ -100,7 +66,7 @@ class DQNLightning(LightningModule):
         self.target_net = DQN(obs_dim, n_actions)
         
         self.buffer = ReplayBuffer(self.hparams.replay_size)
-        self.agent = Mario(self.env, self.buffer)
+        self.agent = Agent(self.env, self.buffer)
         self.total_reward = 0
         self.episode_reward = 0
         self.populate(self.hparams.warm_start_steps)
@@ -114,25 +80,50 @@ class DQNLightning(LightningModule):
         return self.net(state).float()
     
     def loss_fn(self, batch: Tuple[Tensor, Tensor]) -> Tensor:
-        # ?????????????????????
         states, actions, rewards, dones, next_states = batch
-        
+
+        actions = actions.long().squeeze(-1)
+
         state_action_values = self.net(states).gather(1, actions.unsqueeze(-1)).squeeze(-1)
-        
+
+        # dont want to mess with gradients when using the target network
         with torch.no_grad():
-            next_state_values = self.target_net(next_states).max(1)[0]
-            next_state_values[dones] = 0.0
-            next_state_values = next_state_values.detach()
-        
+            next_outputs = self.net(next_states)
+
+            next_state_acts = next_outputs.max(1)[1].unsqueeze(-1)
+            next_tgt_out = self.target_net(next_states)
+
+        # Take the value of the action chosen by the train network
+        next_state_values = next_tgt_out.gather(1, next_state_acts).squeeze(-1)
+        next_state_values[dones] = 0.0  # any steps flagged as done get a 0 value
+        next_state_values = next_state_values.detach()  # remove values from the graph, no grads needed
+
+        # calc expected discounted return of next_state_values
         expected_state_action_values = next_state_values * self.hparams.gamma + rewards
+
+        # Standard MSE loss between the state action values of the current state and the
+        # expected state action values of the next state
         
-        return nn.SmoothL1Loss()(state_action_values, expected_state_action_values)
+        # log
+        # ic()
+        # ic(state_action_values.shape)
+        # ic(expected_state_action_values.shape)
+        
+        return nn.MSELoss()(state_action_values, expected_state_action_values)
     
     def training_step(self, batch: Tuple[Tensor, Tensor], nb_batch) -> OrderedDict:
+        # Soft update of target network
+        if self.global_step % self.hparams.sync_rate == 0:
+            # print("target net is synced")
+            self.target_net.load_state_dict(self.net.state_dict())
+            
+        if self.global_step < self.hparams.warm_start_steps:
+            return None
+        
         device = self.get_device(batch)
-        self.hparams.eps_start *= self.hparams.eps_decay
         epsilon = max(self.hparams.eps_min, self.hparams.eps_start)
         reward, done = self.agent.play_step(self.net, epsilon, device)
+        self.hparams.eps_start *= self.hparams.eps_decay
         self.episode_reward += reward
         loss = self.loss_fn(batch)
         
@@ -142,10 +133,7 @@ class DQNLightning(LightningModule):
         if done:
             self.total_reward = self.episode_reward
             self.episode_reward = 0
-        # Soft update of target network
-        if self.global_step % self.hparams.sync_rate == 0:
-            self.target_net.load_state_dict(self.net.state_dict())
-
+            
         log = {
             "total_reward": torch.tensor(self.total_reward).to(device),
             "reward": torch.tensor(reward).to(device),
