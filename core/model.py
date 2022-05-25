@@ -24,12 +24,25 @@ class DQN(nn.Module):
         self.net = nn.Sequential(
             nn.Conv2d(in_channels=c, out_channels=32, kernel_size=8, stride=4),
             nn.ReLU(),
-            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2),
+            nn.Conv2d(in_channels=32, out_channels=32, kernel_size=6, stride=4),
             nn.ReLU(),
-            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1),
+            nn.AdaptiveAvgPool2d(32),
+            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=3),
             nn.ReLU(),
+            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=3),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d(64),
+            nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=2),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=1),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d((1,1)),
             nn.Flatten(),
-            nn.Linear(3136, 512),
+            nn.Linear(128, 2048),
+            nn.ReLU(),
+            nn.Linear(2048, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, 512),
             nn.ReLU(),
             nn.Linear(512, n_actions)
         )
@@ -47,7 +60,7 @@ class DDQNLightning(pl.LightningModule):
         sync_rate: int = 10000,
         replay_size: int = 30000,
         warm_start_size: int = 1000,
-        eps_decay: int = 0.99999975,
+        eps_decay: int = 0.999,
         eps_start: float = 1,
         eps_min: float = 0.1,
         episode_length: int = 10000,
@@ -116,9 +129,6 @@ class DDQNLightning(pl.LightningModule):
         if self.global_step % self.hparams.sync_rate == 0:
             # print("target net is synced")
             self.target_net.load_state_dict(self.net.state_dict())
-            
-        if self.global_step < self.hparams.warm_start_steps:
-            return None
         
         device = self.get_device(batch)
         epsilon = max(self.hparams.eps_min, self.hparams.eps_start)
@@ -161,6 +171,7 @@ class DDQNLightning(pl.LightningModule):
         dataloader = DataLoader(
             dataset=dataset,
             batch_size=self.hparams.batch_size,
+            num_workers=6,
         )
         return dataloader
 

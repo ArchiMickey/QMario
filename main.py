@@ -11,10 +11,15 @@ checkpoint_callback = ModelCheckpoint(
     mode="max",
     dirpath="model/",
     filename="sample-qmario-{epoch:02d}",
-    every_n_train_steps=5e5,
+    every_n_train_steps=500000,
 )
 
-model = DDQNLightning()
+model = DDQNLightning(
+    batch_size=256,
+    warm_start_steps=4000,
+    episode_length=4000,
+    replay_size=4000,
+)
 wandb_logger = WandbLogger(name="qMario")
 trainer = pl.Trainer(
     accelerator="gpu",
@@ -24,8 +29,7 @@ trainer = pl.Trainer(
     # val_check_interval=50,
     auto_lr_find=True,
     callbacks=[checkpoint_callback],
-    enable_progress_bar=False,
 )
 
-trainer.tune(model)
+# trainer.tune(model)
 trainer.fit(model)
