@@ -5,6 +5,7 @@ from typing import OrderedDict, List, Tuple
 from torch.optim import Adam, Optimizer
 from torch.utils.data import DataLoader
 from icecream import ic
+import wandb
 
 from .replay_buffer import ReplayBuffer, RLDataset
 from .agent import Agent
@@ -81,7 +82,7 @@ class DDQNLightning(pl.LightningModule):
         if self.hparams.save_video is True:
             self.env = RecordVideo(self.env,
                                    video_folder="train_video/",
-                                   episode_trigger=100,
+                                   episode_trigger = lambda x: x % 100 == 0,
                                    )
         
         obs_dim = self.env.observation().shape
@@ -95,6 +96,7 @@ class DDQNLightning(pl.LightningModule):
         
         self.buffer = ReplayBuffer(self.hparams.replay_size)
         self.agent = Agent(self.env, self.buffer)
+        
         self.total_reward: float = 0
         self.episode_reward: float = 0
         self.total_episode: float = 0
@@ -162,6 +164,7 @@ class DDQNLightning(pl.LightningModule):
             self.total_episode += 1
             self.log("episode_reward", self.total_reward)
             self.log("total_episode", self.total_episode)
+            # self.log("video_gameplay", wandb.Video(f"train_video/rl-video-episode-{self.total_episode}.mp4"))
             
         log = {
             "total_reward": torch.tensor(self.total_reward).to(device),

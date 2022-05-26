@@ -5,7 +5,7 @@ from torch import nn
 from .replay_buffer import ReplayBuffer, Experience
 from icecream import ic
 class Agent:
-    def __init__(self, env: gym.Env, replay_buffer:ReplayBuffer) -> None:
+    def __init__(self, env: gym.Env, replay_buffer: ReplayBuffer) -> None:
         self.env = env
         self.replay_buffer = replay_buffer
         self.reset()
