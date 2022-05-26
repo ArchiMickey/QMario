@@ -10,6 +10,8 @@ from .replay_buffer import ReplayBuffer, RLDataset
 from .agent import Agent
 from .utils import make_mario
 
+from gym.wrappers import RecordVideo
+
 from torch import nn
 class DQN(nn.Module):
     def __init__(self, obs_dim, n_actions):
@@ -38,7 +40,9 @@ class DQN(nn.Module):
             nn.ReLU(),
             nn.AdaptiveAvgPool2d((1,1)),
             nn.Flatten(),
-            nn.Linear(128, 2048),
+            nn.Linear(128, 4096),
+            nn.ReLU(),
+            nn.Linear(4096, 2048),
             nn.ReLU(),
             nn.Linear(2048, 1024),
             nn.ReLU(),
@@ -65,6 +69,7 @@ class DDQNLightning(pl.LightningModule):
         eps_min: float = 0.1,
         episode_length: int = 10000,
         warm_start_steps: int = 15000,
+        save_video: bool = False,
     ) -> None:
         super().__init__()
         
@@ -72,16 +77,27 @@ class DDQNLightning(pl.LightningModule):
         
         self.env = make_mario(env)
         self.env.reset()
+        
+        if self.hparams.save_video is True:
+            self.env = RecordVideo(self.env,
+                                   video_folder="train_video/",
+                                   episode_trigger=100,
+                                   )
+        
         obs_dim = self.env.observation().shape
         n_actions = self.env.action_space.n
         
         self.net = DQN(obs_dim, n_actions)
         self.target_net = DQN(obs_dim, n_actions)
         
+        for p in self.target_net.parameters():
+            p.requires_grad = False
+        
         self.buffer = ReplayBuffer(self.hparams.replay_size)
         self.agent = Agent(self.env, self.buffer)
-        self.total_reward = 0
-        self.episode_reward = 0
+        self.total_reward: float = 0
+        self.episode_reward: float = 0
+        self.total_episode: float = 0
         self.populate(self.hparams.warm_start_steps)
     
     def populate(self, steps: int = 1000):
@@ -131,7 +147,7 @@ class DDQNLightning(pl.LightningModule):
             self.target_net.load_state_dict(self.net.state_dict())
         
         device = self.get_device(batch)
-        epsilon = max(self.hparams.eps_min, self.hparams.eps_start)
+        epsilon: float = max(self.hparams.eps_min, self.hparams.eps_start)
         reward, done = self.agent.play_step(self.net, epsilon, device)
         self.hparams.eps_start *= self.hparams.eps_decay
         self.episode_reward += reward
@@ -143,6 +159,9 @@ class DDQNLightning(pl.LightningModule):
         if done:
             self.total_reward = self.episode_reward
             self.episode_reward = 0
+            self.total_episode += 1
+            self.log("episode_reward", self.total_reward)
+            self.log("total_episode", self.total_episode)
             
         log = {
             "total_reward": torch.tensor(self.total_reward).to(device),
@@ -154,9 +173,9 @@ class DDQNLightning(pl.LightningModule):
             "total_reward": torch.tensor(self.total_reward).to(device),
         }
 
-        self.log("my loss", loss, on_epoch=True)
-        self.log("reward", reward, on_epoch=True)
-        self.log("epsilon", epsilon, on_epoch=True)
+        self.log("my loss", loss)
+        self.log("step_reward", reward)
+        self.log("epsilon", epsilon)
         
         return OrderedDict({"loss": loss, "log": log, "progress_bar": status})
     
