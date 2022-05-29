@@ -78,7 +78,6 @@ class ValueAgent(Agent):
             state = np.array(state)
             state = torch.tensor(state, device=device)
 
-        state = state.squeeze(-1)
         ic(state.shape)
         ic(type(state))
         

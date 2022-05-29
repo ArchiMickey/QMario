@@ -17,6 +17,21 @@ checkpoint_callback = ModelCheckpoint(
     every_n_train_steps=10000,
 )
 
+test_model = DDQNLightning(
+    batch_size=32,
+    warm_start_steps=100,
+    episode_length=100,
+    replay_size=100,
+    # save_video=True,
+)
+
+# model = DDQNLightning(
+#     batch_size=512,
+#     warm_start_steps=4000,
+#     episode_length=4000,
+#     replay_size=4000,
+# )
+
 now_dt = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
 # wandb_logger = WandbLogger(name=f"qMario-{now_dt}")
 trainer = pl.Trainer(
