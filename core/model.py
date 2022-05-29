@@ -188,11 +188,12 @@ class DDQN(pl.LightningModule):
                 break
     
     def double_dqn_loss(
-    batch: Tuple[Tensor, Tensor],
-    net: nn.Module,
-    target_net: nn.Module,
-    gamma: float = 0.99,
-) -> Tensor:
+        self,
+        batch: Tuple[Tensor, Tensor],
+        net: nn.Module,
+        target_net: nn.Module,
+        gamma: float = 0.99,
+        ) -> Tensor:
         """Calculates the mse loss using a mini batch from the replay buffer. This uses an improvement to the original
         DQN loss by using the double dqn. This is shown by using the actions of the train network to pick the value
         from the target network. This code is heavily commented in order to explain the process clearly.
