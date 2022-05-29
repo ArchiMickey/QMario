@@ -3,7 +3,6 @@ from typing import List, Tuple, Union
 
 import numpy as np
 
-
 Experience = namedtuple("Experience", field_names=["state", "action", "reward", "done", "new_state"])
 
 
@@ -105,7 +104,6 @@ class MultiStepBuffer(ReplayBuffer):
                 done=experiences[0].done,
                 new_state=last_exp_state,
             )
-
             self.buffer.append(n_step_exp)  # add n_step experience to buffer
 
     def update_history_queue(self, exp) -> None:

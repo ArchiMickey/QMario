@@ -66,7 +66,7 @@ class ValueAgent(Agent):
 
         return actions
 
-    def get_action(self, state: Tensor, device: torch.device):
+    def get_action(self, state: Tensor, device: str = "cpu"):
         """Returns the best action based on the Q values of the network.
         Args:
             state: current state of the environment
@@ -76,14 +76,14 @@ class ValueAgent(Agent):
         """
         if not isinstance(state, Tensor):
             state = np.array(state)
-            state = torch.tensor(state, device=device)
+            state = torch.tensor(state)
 
-        state = state.unsqueeze(0).squeeze(-1)
-        ic(state.shape)
+        if device not in ["cpu"]:
+            state = state.cuda(device)
+
+        state = state.unsqueeze(0)
         
         q_values = self.net(state)
-        # ic()
-        # ic(q_values)
         _, actions = torch.max(q_values, dim=1)
         return actions.detach().cpu().numpy()
 

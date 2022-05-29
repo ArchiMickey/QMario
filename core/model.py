@@ -12,6 +12,8 @@ from .neural import CNN
 from .memory import Experience, MultiStepBuffer
 from .dataset import ExperienceSourceDataset
 from gym.wrappers import GrayScaleObservation, ResizeObservation, FrameStack, TransformObservation, RecordVideo
+from pytorch_lightning.trainer import Trainer
+from pytorch_lightning.plugins import DataParallelPlugin, DDP2Plugin
 from pl_bolts.models.rl.common.gym_wrappers import MaxAndSkipEnv
 import gym_super_mario_bros
 from gym_super_mario_bros.actions import RIGHT_ONLY
@@ -26,27 +28,31 @@ class DDQN(pl.LightningModule):
         eps_start: float = 1.0,
         eps_end: float = 0.01,
         eps_last_frame: int = 150000,
-        sync_rate: int = 1000,
+        sync_rate: int = 10000,
         gamma: float = 0.99,
         learning_rate: float = 1e-4,
         batch_size: int = 32,
         replay_size: int = 100000,
-        warm_start_size: int = 10000,
+        warm_start_size: int = 100000,
         avg_reward_len: int = 100,
         min_episode_reward: int = -21,
         seed: int = 123,
         batches_per_epoch: int = 1000,
         n_steps: int = 1,
+        save_video: bool = False,
+        video_episode: int = 1,
         **kwargs,
     ):
         super().__init__()
         
+        self.save_video = save_video
+        self.video_episode = video_episode
         self.exp = None
         self.env = self.make_environment(env)
         self.test_env = self.make_environment(env)
 
         self.obs_shape = self.env.observation_space.shape
-        ic(self.obs_shape)
+        # ic(self.obs_shape)
         self.n_actions = self.env.action_space.n
 
         # Model Attributes
@@ -57,7 +63,7 @@ class DDQN(pl.LightningModule):
         self.target_net = None
         self.build_networks()
         
-        ic(self.net)
+        # ic(self.net)
         
         self.agent = ValueAgent(
             self.net,
@@ -125,12 +131,10 @@ class DDQN(pl.LightningModule):
         if warm_start > 0:
             self.state = self.env.reset()
 
-            for _ in range(warm_start):
+            for i in range(warm_start):
+                print(f"Warming up at step {i}", end='\r')
                 self.agent.epsilon = 1.0
                 action = self.agent(self.state, self.device) # get the actions Q-value from the agent
-                
-                # ic()
-                # ic(action)
                 
                 next_state, reward, done, _ = self.env.step(action[0])
                 exp = Experience(state=self.state, action=action[0], reward=reward, done=done, new_state=next_state)
@@ -160,16 +164,16 @@ class DDQN(pl.LightningModule):
             self.total_steps += 1
             action = self.agent.get_action(self.state, self.device)
             
-            next_state, reward, done, _ = self.env.step(action[0])
+            next_state, reward, is_done, _ = self.env.step(action[0])
             
             episode_reward += reward
             episode_steps += 1
             
-            exp = Experience(state=self.state, action=action, reward=reward, done=done, new_state=next_state)
+            exp = Experience(state=self.state, action=action[0], reward=reward, done=is_done, new_state=next_state)
             self.agent.update_epsilon(self.global_step)
             self.buffer.append(exp)
             
-            if done:
+            if is_done:
                 self.done_episodes += 1
                 self.total_rewards.append(episode_reward)
                 self.total_episode_steps.append(episode_steps)
@@ -179,10 +183,9 @@ class DDQN(pl.LightningModule):
                 episode_reward = 0
             
             states, actions, rewards, dones, new_states = self.buffer.sample(self.batch_size)
-            
             for idx, _ in enumerate(dones):
                 yield states[idx], actions[idx], rewards[idx], dones[idx], new_states[idx]
-
+                
             # Simulates epochs
             if self.total_steps % self.batches_per_epoch == 0:
                 break
@@ -208,7 +211,7 @@ class DDQN(pl.LightningModule):
             loss
         """
         states, actions, rewards, dones, next_states = batch  # batch of experiences, batch_size = 16
-
+        
         actions = actions.long().squeeze(-1)
 
         state_action_values = net(states).gather(1, actions.unsqueeze(-1)).squeeze(-1)
@@ -259,6 +262,7 @@ class DDQN(pl.LightningModule):
                 "train_loss": loss,
                 "episodes": self.done_episodes,
                 "episode_steps": self.total_episode_steps[-1],
+                "epsilon": self.agent.epsilon,
             }
         )
 
@@ -293,7 +297,7 @@ class DDQN(pl.LightningModule):
         self.populate(self.warm_start_size)
 
         self.dataset = ExperienceSourceDataset(self.train_batch)
-        return DataLoader(dataset=self.dataset, batch_size=self.batch_size)
+        return DataLoader(dataset=self.dataset, batch_size=self.batch_size, num_workers=0)
     
     def train_dataloader(self) -> DataLoader:
         """Get train loader."""
@@ -303,18 +307,21 @@ class DDQN(pl.LightningModule):
         """Get test loader."""
         return self._dataloader()
     
-    @staticmethod
-    def make_environment(env_name: str, seed: Optional[int] = None):
+    def make_environment(self, env_name: str, seed: Optional[int] = None):
         env = gym_super_mario_bros.make(env_name)
         env = JoypadSpace(env, RIGHT_ONLY)
-        env = RecordVideo(env, "test_video", lambda x: x % 1 == 0)
+        if self.save_video:
+            env = RecordVideo(env, "test_video", lambda x: x % self.video_episode == 0)
         env = MaxAndSkipEnv(env, skip=4)
         env = GrayScaleObservation(env, keep_dim=False)
         env = ResizeObservation(env, shape=84)
         env = TransformObservation(env, f = lambda x: x / 255.)
-        env.reset()
         env = FrameStack(env, num_stack=4)
         return env
+    
+    @staticmethod
+    def _use_dp_or_ddp2(trainer: Trainer) -> bool:
+        return isinstance(trainer.training_type_plugin, (DataParallelPlugin, DDP2Plugin))
 
 def cli_main():
     model = DDQN()
