@@ -75,13 +75,14 @@ class ValueAgent(Agent):
             action defined by Q values
         """
         if not isinstance(state, Tensor):
+            state = np.array(state)
             state = torch.tensor(state, device=device)
 
         state = state.squeeze(-1)
         ic(state.shape)
         ic(type(state))
         
-        q_values = self.net(state.float())
+        q_values = self.net(state)
         # ic()
         # ic(q_values)
         _, actions = torch.max(q_values, dim=1)

@@ -23,4 +23,4 @@ class CNN(nn.Module):
         )
 
     def forward(self, input_x):
-        return self.net(input_x)
+        return self.net(input_x.float())

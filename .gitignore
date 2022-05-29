@@ -5,3 +5,5 @@ lightning_logs
 wandb
 model
 test_video
+env_wrapper_test.py
+test.py
