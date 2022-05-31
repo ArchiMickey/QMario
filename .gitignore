@@ -4,5 +4,7 @@ lightning_logs
 *.ckpt
 wandb
 test_video
-env_wrapper_test.ipynb
+train_video
+wrapper_test_video
+*.ipynb
 test.py

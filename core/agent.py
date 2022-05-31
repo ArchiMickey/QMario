@@ -40,13 +40,6 @@ class Agent:
         action = self.get_action(net, epsilon, device)
         new_state, reward, done, _ = self.env.step(action)
         
-        # self.env.render()
-        # plt.close()
-        # fig, ax = plt.subplots(1, 4)
-        # plt.figure(figsize=(20,8))
-        # for i in range(4):
-        #     ax[i].imshow(self.state[i], cmap='gray')
-        
         exp = Experience(self.state, action, reward, done, new_state)
         self.replay_buffer.append(exp)
         self.state = new_state

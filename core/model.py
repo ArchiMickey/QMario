@@ -9,51 +9,11 @@ import wandb
 
 from .replay_buffer import ReplayBuffer, RLDataset
 from .agent import Agent
-from .utils import make_mario
-
-from gym.wrappers import RecordVideo
+from .env_wrapper import make_mario
 
 from torch import nn
-class DQN(nn.Module):
-    def __init__(self, obs_dim, n_actions):
-        c, h, w = obs_dim
-        
-        if h != 84:
-            raise ValueError(f"Expecting input height: 84, got: {h}")
-        if w != 84:   
-            raise ValueError(f"Expecting input width: 84, got: {w}")
-        
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Conv2d(in_channels=c, out_channels=32, kernel_size=8, stride=4),
-            nn.ReLU(),
-            nn.Conv2d(in_channels=32, out_channels=32, kernel_size=6, stride=4),
-            nn.ReLU(),
-            nn.AdaptiveAvgPool2d(32),
-            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=3),
-            nn.ReLU(),
-            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=3),
-            nn.ReLU(),
-            nn.AdaptiveAvgPool2d(64),
-            nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=2),
-            nn.ReLU(),
-            nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=1),
-            nn.ReLU(),
-            nn.AdaptiveAvgPool2d((1,1)),
-            nn.Flatten(),
-            nn.Linear(128, 4096),
-            nn.ReLU(),
-            nn.Linear(4096, 2048),
-            nn.ReLU(),
-            nn.Linear(2048, 1024),
-            nn.ReLU(),
-            nn.Linear(1024, 512),
-            nn.ReLU(),
-            nn.Linear(512, n_actions)
-        )
-    def forward(self, state):
-        # print(next(self.parameters()).is_cuda)
-        return self.net(state.float())
+
+from .neural import CNN
 
 class DDQNLightning(pl.LightningModule):
     def __init__(
@@ -70,7 +30,6 @@ class DDQNLightning(pl.LightningModule):
         eps_min: float = 0.1,
         episode_length: int = 10000,
         warm_start_steps: int = 15000,
-        save_video: bool = False,
     ) -> None:
         super().__init__()
         
@@ -79,17 +38,11 @@ class DDQNLightning(pl.LightningModule):
         self.env = make_mario(env)
         self.env.reset()
         
-        if self.hparams.save_video is True:
-            self.env = RecordVideo(self.env,
-                                   video_folder="train_video/",
-                                   episode_trigger = lambda x: x % 100 == 0,
-                                   )
-        
-        obs_dim = self.env.observation().shape
+        obs_dim = self.env.observation_space.shape
         n_actions = self.env.action_space.n
         
-        self.net = DQN(obs_dim, n_actions)
-        self.target_net = DQN(obs_dim, n_actions)
+        self.net = CNN(obs_dim, n_actions)
+        self.target_net = CNN(obs_dim, n_actions)
         
         for p in self.target_net.parameters():
             p.requires_grad = False
@@ -99,7 +52,7 @@ class DDQNLightning(pl.LightningModule):
         
         self.total_reward: float = 0
         self.episode_reward: float = 0
-        self.total_episode: float = 0
+        self.episode: int = 0
         self.populate(self.hparams.warm_start_steps)
     
     def populate(self, steps: int = 1000):
@@ -132,7 +85,7 @@ class DDQNLightning(pl.LightningModule):
         # calc expected discounted return of next_state_values
         expected_state_action_values = next_state_values * self.hparams.gamma + rewards
 
-        # Standard MSE loss between the state action values of the current state and the
+        # Standard SmoothL1Loss between the state action values of the current state and the
         # expected state action values of the next state
         
         # log
@@ -140,7 +93,7 @@ class DDQNLightning(pl.LightningModule):
         # ic(state_action_values.shape)
         # ic(expected_state_action_values.shape)
         
-        return nn.MSELoss()(state_action_values, expected_state_action_values)
+        return nn.SmoothL1Loss()(state_action_values, expected_state_action_values)
     
     def training_step(self, batch: Tuple[Tensor, Tensor], nb_batch) -> OrderedDict:
         # Soft update of target network
@@ -161,26 +114,25 @@ class DDQNLightning(pl.LightningModule):
         if done:
             self.total_reward = self.episode_reward
             self.episode_reward = 0
-            self.total_episode += 1
-            self.log("episode_reward", self.total_reward)
-            self.log("total_episode", self.total_episode)
-            # self.log("video_gameplay", wandb.Video(f"train_video/rl-video-episode-{self.total_episode}.mp4"))
+            self.episode += 1
+            self.log("total_reward", self.total_reward)
+            self.log("episode", self.episode)
             
         log = {
             "total_reward": torch.tensor(self.total_reward).to(device),
             "reward": torch.tensor(reward).to(device),
             "train_loss": loss,
         }
-        status = {
-            "steps": torch.tensor(self.global_step).to(device),
-            "total_reward": torch.tensor(self.total_reward).to(device),
-        }
 
-        self.log("my loss", loss)
-        self.log("step_reward", reward)
-        self.log("epsilon", epsilon)
+        self.log_dict(
+            {
+                "loss": loss,
+                "step_reward": reward,
+                "epsilon": epsilon,
+            }
+        )
         
-        return OrderedDict({"loss": loss, "log": log, "progress_bar": status})
+        return OrderedDict({"loss": loss, "log": log})
     
     def configure_optimizers(self) -> List[Optimizer]:
         """Initialize Adam optimizer."""
