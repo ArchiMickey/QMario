@@ -9,10 +9,10 @@ from icecream import ic
 
 checkpoint_callback = ModelCheckpoint(
     save_top_k=5,
-    monitor="global_step",
+    monitor="total_reward",
     mode="max",
     dirpath="model/",
-    filename="sample-qmario-{epoch:02d}",
+    filename="qmario-{epoch:02d}",
     every_n_train_steps=10000,
 )
 
@@ -25,9 +25,10 @@ checkpoint_callback = ModelCheckpoint(
 
 model = DDQNLightning(
     batch_size=256,
-    warm_start_steps=4000,
-    episode_length=4000,
-    replay_size=4000,
+    warm_start_steps=7000,
+    episode_length=5000,
+    replay_size=10000,
+    eps_min=0.01,
 )
 # ic(model)
 
@@ -35,10 +36,14 @@ now_dt = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
 wandb.init(name=f"qMario-{now_dt}")
 wandb.watch(model)
 
+wandb_logger = WandbLogger()
+
 trainer = pl.Trainer(
     accelerator="gpu",
     devices = 1 if torch.cuda.is_available() else None,
-    max_epochs=4000000,
+    max_epochs=400000,
+    logger=wandb_logger,
+    gradient_clip_val= 30.0,
     # val_check_interval=50,
     # auto_lr_find=True,
     callbacks=[checkpoint_callback],
