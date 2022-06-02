@@ -134,6 +134,14 @@ class DDQNLightning(pl.LightningModule):
         
         return OrderedDict({"loss": loss, "log": log})
     
+    def configure_gradient_clipping(
+        self, optimizer, optimizer_idx, gradient_clip_val, gradient_clip_algorithm
+    ):
+        grad_norm = torch.nn.utils.clip_grad_norm_(
+            sum([p["params"] for p in optimizer.param_groups], []), gradient_clip_val
+        )
+        self.log("grad_norm", grad_norm)
+    
     def configure_optimizers(self) -> List[Optimizer]:
         """Initialize Adam optimizer."""
         optimizer = Adam(self.net.parameters(), lr=self.hparams.lr)
