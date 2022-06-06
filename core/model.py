@@ -1,13 +1,15 @@
+from collections import deque
+import numpy as np
 import pytorch_lightning as pl
 import torch
-from torch import Tensor
+from torch import Tensor, device
 from typing import OrderedDict, List, Tuple
 from torch.optim import Adam, Optimizer
 from torch.utils.data import DataLoader
 from icecream import ic
 import wandb
 
-from .replay_buffer import ReplayBuffer, RLDataset
+from .replay_buffer import MultiStepBuffer, RLDataset
 from .agent import Agent
 from .env_wrapper import make_mario
 
@@ -28,10 +30,21 @@ class DDQNLightning(pl.LightningModule):
         eps_decay: int = 0.999,
         eps_start: float = 1,
         eps_min: float = 0.1,
-        episode_length: int = 10000,
-        warm_start_steps: int = 15000,
+        n_steps: int = 1,
+        avg_rewards_len: int = 100,
     ) -> None:
         super().__init__()
+        
+        self.batch_size = batch_size
+        self.lr = lr
+        self.gamma = gamma
+        self.sync_rate = sync_rate
+        self.replay_size = replay_size
+        self.warm_start_size = warm_start_size
+        self.eps_decay = eps_decay
+        self.eps_start = eps_start
+        self.eps_min = eps_min
+        self.n_steps = n_steps
         
         self.save_hyperparameters()
         
@@ -47,13 +60,19 @@ class DDQNLightning(pl.LightningModule):
         for p in self.target_net.parameters():
             p.requires_grad = False
         
-        self.buffer = ReplayBuffer(self.hparams.replay_size)
+        self.buffer = MultiStepBuffer(self.replay_size, self.n_steps)
         self.agent = Agent(self.env, self.buffer)
         
-        self.total_reward: float = 0
+        self.total_rewards = deque(maxlen=avg_rewards_len)
         self.episode_reward: float = 0
-        self.episode: int = 0
-        self.populate(self.hparams.warm_start_steps)
+        self.total_episodes: int = 0
+        
+        self.avg_reward_len = avg_rewards_len
+        for _ in range(avg_rewards_len):
+            self.total_rewards.append(torch.tensor(0, device=self.device))
+        self.avg_rewards = float(np.mean(list(self.total_rewards)))
+        
+        self.populate(self.hparams.warm_start_size)
     
     def populate(self, steps: int = 1000):
         for i in range(steps):
@@ -112,14 +131,20 @@ class DDQNLightning(pl.LightningModule):
             loss = loss.unsqueeze(0)
         
         if done:
-            self.total_reward = self.episode_reward
+            self.total_rewards.append(self.episode_reward)
+            self.avg_rewards = float(np.mean(list(self.total_rewards)))
+            self.total_episodes += 1
+            self.log_dict(
+            {
+                "episode_reward": self.episode_reward,
+                "total_episodes": self.total_episodes,
+                "avg_reward": self.avg_rewards,
+            }
+            )
             self.episode_reward = 0
-            self.episode += 1
-            self.log("total_reward", self.total_reward)
-            self.log("episode", self.episode)
             
         log = {
-            "total_reward": torch.tensor(self.total_reward).to(device),
+            "total_reward": torch.tensor(self.episode_reward).to(device),
             "reward": torch.tensor(reward).to(device),
             "train_loss": loss,
         }
@@ -149,7 +174,7 @@ class DDQNLightning(pl.LightningModule):
 
     def __dataloader(self) -> DataLoader:
         """Initialize the Replay Buffer dataset used for retrieving experiences."""
-        dataset = RLDataset(self.buffer, self.hparams.episode_length)
+        dataset = RLDataset(self.buffer, len(self.buffer))
         dataloader = DataLoader(
             dataset=dataset,
             batch_size=self.hparams.batch_size,
