@@ -2,7 +2,7 @@ from collections import deque
 import numpy as np
 import pytorch_lightning as pl
 import torch
-from torch import Tensor, device
+from torch import Tensor
 from typing import OrderedDict, List, Tuple
 from torch.optim import Adam, Optimizer
 from torch.utils.data import DataLoader
