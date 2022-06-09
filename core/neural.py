@@ -3,8 +3,6 @@ import numpy as np
 from torch import nn
 import torch
 
-from icecream import ic
-
 class CNN(nn.Module):
     
     def __init__(self, input_shape: Tuple[int], n_actions: int) -> None:

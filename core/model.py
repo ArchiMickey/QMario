@@ -6,12 +6,11 @@ from torch import Tensor
 from typing import OrderedDict, List, Tuple
 from torch.optim import Adam, Optimizer
 from torch.utils.data import DataLoader
-from icecream import ic
-import wandb
 
 from .replay_buffer import MultiStepBuffer, RLDataset
 from .agent import Agent
 from .env_wrapper import make_mario
+from .lr_scheduler import NoamLR
 
 from torch import nn
 
@@ -31,6 +30,7 @@ class DDQNLightning(pl.LightningModule):
         eps_start: float = 1,
         eps_min: float = 0.1,
         n_steps: int = 1,
+        episode_length: int = 1024,
         avg_rewards_len: int = 100,
     ) -> None:
         super().__init__()
@@ -45,6 +45,7 @@ class DDQNLightning(pl.LightningModule):
         self.eps_start = eps_start
         self.eps_min = eps_min
         self.n_steps = n_steps
+        self.episode_length = episode_length
         
         self.save_hyperparameters()
         
@@ -157,6 +158,8 @@ class DDQNLightning(pl.LightningModule):
             }
         )
         
+        self.lr_schedulers().step()
+        
         return OrderedDict({"loss": loss, "log": log})
     
     def configure_gradient_clipping(
@@ -170,11 +173,16 @@ class DDQNLightning(pl.LightningModule):
     def configure_optimizers(self) -> List[Optimizer]:
         """Initialize Adam optimizer."""
         optimizer = Adam(self.net.parameters(), lr=self.hparams.lr)
-        return [optimizer]
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": NoamLR(optimizer=optimizer, warmup_steps=10000)
+            }
+        }
 
     def __dataloader(self) -> DataLoader:
         """Initialize the Replay Buffer dataset used for retrieving experiences."""
-        dataset = RLDataset(self.buffer, len(self.buffer))
+        dataset = RLDataset(self.buffer, self.episode_length)
         dataloader = DataLoader(
             dataset=dataset,
             batch_size=self.hparams.batch_size,
