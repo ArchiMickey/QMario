@@ -3,13 +3,13 @@ import numpy as np
 import pytorch_lightning as pl
 import torch
 from torch import Tensor
-from typing import OrderedDict, List, Tuple
+from typing import Dict, OrderedDict, List, Tuple
 from torch.optim import Adam, Optimizer
 from torch.utils.data import DataLoader
 
 from .replay_buffer import MultiStepBuffer, RLDataset
 from .agent import Agent
-from .env_wrapper import make_mario
+from .env_wrapper import make_mario, record_mario
 from .lr_scheduler import NoamLR
 
 from torch import nn
@@ -50,7 +50,9 @@ class DDQNLightning(pl.LightningModule):
         self.save_hyperparameters()
         
         self.env = make_mario(env)
+        self.test_env = record_mario(env)
         self.env.reset()
+        self.test_env.reset()
         
         obs_dim = self.env.observation_space.shape
         n_actions = self.env.action_space.n
@@ -63,6 +65,7 @@ class DDQNLightning(pl.LightningModule):
         
         self.buffer = MultiStepBuffer(self.replay_size, self.n_steps)
         self.agent = Agent(self.env, self.buffer)
+        self.test_agent = Agent(self.test_env, self.buffer)
         
         self.total_rewards = deque(maxlen=avg_rewards_len)
         self.episode_reward: float = 0
@@ -79,6 +82,29 @@ class DDQNLightning(pl.LightningModule):
         for i in range(steps):
             print(f"warming up at step {i+1}", end='\r')
             self.agent.play_step(self.net, epsilon=1)
+    
+    def run_n_episodes(self, env, n_episodes: int = 1, epsilon: float = 1.0) -> List[int]:
+        """Carries out N episodes of the environment with the current agent.
+        Args:
+            env: environment to use, either train environment or test environment
+            n_epsiodes: number of episodes to run
+            epsilon: epsilon value for DQN agent
+        """
+        total_rewards = []
+
+        for _ in range(n_episodes):
+            self.test_env.reset()
+            done = False
+            episode_reward = 0
+            
+            while not done:
+                reward, done= self.test_agent.play_step(self.net, 0, self.device)
+                episode_reward += reward
+                self.test_env.render()
+
+            total_rewards.append(episode_reward)
+
+        return total_rewards
     
     def forward(self, state: Tensor):
         return self.net(state).float()
@@ -162,6 +188,19 @@ class DDQNLightning(pl.LightningModule):
         
         return OrderedDict({"loss": loss, "log": log})
     
+    def test_step(self, *args, **kwargs) -> Dict[str, Tensor]:
+        """Evaluate the agent for 10 episodes."""
+        test_reward = self.run_n_episodes(self.test_env, 1, 0)
+        avg_reward = sum(test_reward) / len(test_reward)
+        return {"test_reward": avg_reward}
+
+    def test_epoch_end(self, outputs) -> Dict[str, Tensor]:
+        """Log the avg of the test results."""
+        rewards = [x["test_reward"] for x in outputs]
+        avg_reward = sum(rewards) / len(rewards)
+        self.log("avg_test_reward", avg_reward)
+        return {"avg_test_reward": avg_reward}
+    
     def configure_gradient_clipping(
         self, optimizer, optimizer_idx, gradient_clip_val, gradient_clip_algorithm
     ):
@@ -180,7 +219,7 @@ class DDQNLightning(pl.LightningModule):
             }
         }
 
-    def __dataloader(self) -> DataLoader:
+    def _dataloader(self) -> DataLoader:
         """Initialize the Replay Buffer dataset used for retrieving experiences."""
         dataset = RLDataset(self.buffer, self.episode_length)
         dataloader = DataLoader(
@@ -192,7 +231,11 @@ class DDQNLightning(pl.LightningModule):
 
     def train_dataloader(self) -> DataLoader:
         """Get train loader."""
-        return self.__dataloader()
+        return self._dataloader()
+    
+    def test_dataloader(self) -> DataLoader:
+        """Get test loader."""
+        return self._dataloader()
 
     def get_device(self, batch) -> str:
         """Retrieve device currently being used by minibatch."""
