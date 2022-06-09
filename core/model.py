@@ -3,7 +3,7 @@ import numpy as np
 import pytorch_lightning as pl
 import torch
 from torch import Tensor
-from typing import OrderedDict, List, Tuple
+from typing import Dict, OrderedDict, List, Tuple
 from torch.optim import Adam, Optimizer
 from torch.utils.data import DataLoader
 from icecream import ic
@@ -50,6 +50,8 @@ class DDQNLightning(pl.LightningModule):
         
         self.env = make_mario(env)
         self.env.reset()
+        self.test_env = make_mario(env)
+        self.test_env.reset()
         
         obs_dim = self.env.observation_space.shape
         n_actions = self.env.action_space.n
@@ -79,6 +81,20 @@ class DDQNLightning(pl.LightningModule):
             print(f"warming up at step {i+1}", end='\r')
             self.agent.play_step(self.net, epsilon=1)
     
+    def run_n_episodes(self, env, n_episodes: int = 1, epsilon: float = 1.0):
+        total_test_rewards = deque(maxlen=n_episodes)
+        for _ in range(n_episodes):
+            episode_state = env.reset()
+            done = False
+            episode_reward = 0
+            while not done:
+                next_state, reward, done, _ = self.agent.play_step(self.net, epsilon=epsilon, device = self.device)
+                episode_reward += reward
+                episode_state = next_state
+                self.test_env.render()
+            total_test_rewards.append(reward)
+        return total_test_rewards
+    
     def forward(self, state: Tensor):
         return self.net(state).float()
     
@@ -106,11 +122,6 @@ class DDQNLightning(pl.LightningModule):
 
         # Standard SmoothL1Loss between the state action values of the current state and the
         # expected state action values of the next state
-        
-        # log
-        # ic()
-        # ic(state_action_values.shape)
-        # ic(expected_state_action_values.shape)
         
         return nn.SmoothL1Loss()(state_action_values, expected_state_action_values)
     
@@ -159,6 +170,17 @@ class DDQNLightning(pl.LightningModule):
         
         return OrderedDict({"loss": loss, "log": log})
     
+    def test_step(self, *args, **kwargs) -> Dict[str, Tensor]:
+        test_reward = list(self.run_n_episodes(self.test_env, 10, 0))
+        avg_reward = sum(test_reward) / len(test_reward)
+        return {"test_reward": avg_reward}
+    
+    def test_epoch_end(self, outputs) -> Dict[str, Tensor]:
+        rewards = [x["test_reward"] for x in outputs]
+        avg_reward = sum(rewards) / len(rewards)
+        self.log("avg_test_reward", avg_reward)
+        return {"acg_test_reward": avg_reward}
+    
     def configure_gradient_clipping(
         self, optimizer, optimizer_idx, gradient_clip_val, gradient_clip_algorithm
     ):
@@ -184,6 +206,10 @@ class DDQNLightning(pl.LightningModule):
 
     def train_dataloader(self) -> DataLoader:
         """Get train loader."""
+        return self.__dataloader()
+    
+    def test_dataloader(self) -> DataLoader:
+        """Get test loader."""
         return self.__dataloader()
 
     def get_device(self, batch) -> str:
