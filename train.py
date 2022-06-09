@@ -3,13 +3,13 @@ import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
 import wandb
 from core.model import DDQNLightning
-from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 from datetime import datetime
 from icecream import ic
 
 checkpoint_callback = ModelCheckpoint(
-    save_top_k=5,
-    monitor="total_reward",
+    save_top_k=3,
+    monitor="avg_reward",
     mode="max",
     dirpath="model/",
     filename="qmario-{epoch:02d}",
@@ -25,10 +25,13 @@ checkpoint_callback = ModelCheckpoint(
 
 model = DDQNLightning(
     batch_size=256,
-    warm_start_steps=7000,
-    episode_length=5000,
-    replay_size=10000,
+    warm_start_size=10000,
+    episode_length=4096,
+    n_steps=2,
+    replay_size=100000,
+    eps_decay=0.9999,
     eps_min=0.01,
+    sync_rate=250000,
 )
 # ic(model)
 
@@ -43,10 +46,11 @@ trainer = pl.Trainer(
     devices = 1 if torch.cuda.is_available() else None,
     max_epochs=400000,
     logger=wandb_logger,
-    gradient_clip_val= 30.0,
+    gradient_clip_val= 5.0,
     # val_check_interval=50,
     # auto_lr_find=True,
-    callbacks=[checkpoint_callback],
+    benchmark=False,
+    callbacks=[checkpoint_callback, LearningRateMonitor(logging_interval='step')],
 )
 
 trainer.fit(model)
