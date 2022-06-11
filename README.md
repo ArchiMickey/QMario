@@ -6,7 +6,7 @@ The neural network is just a simple double deep q network. The replay buffer is 
 
 # Getting started
 
-You can install all the dependencies with `qmario.yml` with `conda`.
+You can install all the dependencies by using `qmario.yml` with `conda`.
 
 Use `train.py` to start training.
 
