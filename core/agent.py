@@ -21,11 +21,10 @@ class Agent:
             state = np.array(self.state)
             state = torch.Tensor(state)
             
-            if device not in ['cpu']:
+            if device.type not in ['cpu']:
                 state = state.cuda(device)
-            # ic(state.shape)
+                
             state = state.unsqueeze(0)
-            # ic(state.shape)
             q_values = net(state)
             _, action = torch.max(q_values, dim=1)
             action = int(action.item())

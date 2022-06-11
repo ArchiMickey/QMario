@@ -8,9 +8,12 @@ model = DDQNLightning(
     episode_length=300,
     replay_size=10000,
     eps_min=0.01,
+    save_video=True,
+    fps=24,
 )
 
 trainer = pl.Trainer(
+    max_steps=1,
     accelerator="gpu",
 )
-trainer.test(model=model, ckpt_path="model/qmario-epoch=34999.ckpt")
+trainer.test(model=model, ckpt_path="model/qmario-epoch=40312.ckpt")

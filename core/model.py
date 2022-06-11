@@ -13,6 +13,8 @@ from .env_wrapper import make_mario, record_mario
 from .lr_scheduler import NoamLR
 
 from torch import nn
+import cv2
+from moviepy.editor import *
 
 from .neural import CNN
 
@@ -32,6 +34,8 @@ class DDQNLightning(pl.LightningModule):
         n_steps: int = 1,
         episode_length: int = 1024,
         avg_rewards_len: int = 100,
+        save_video: bool = False,
+        fps: int = None,
     ) -> None:
         super().__init__()
         
@@ -46,11 +50,13 @@ class DDQNLightning(pl.LightningModule):
         self.eps_min = eps_min
         self.n_steps = n_steps
         self.episode_length = episode_length
+        self.save_video = save_video
+        self.fps = fps
         
         self.save_hyperparameters()
         
         self.env = make_mario(env)
-        self.test_env = record_mario(env)
+        self.test_env = make_mario(env)
         self.env.reset()
         self.test_env.reset()
         
@@ -92,15 +98,32 @@ class DDQNLightning(pl.LightningModule):
         """
         total_rewards = []
 
-        for _ in range(n_episodes):
+        for episode in range(n_episodes):
             self.test_env.reset()
             done = False
             episode_reward = 0
             
+            if self.save_video:
+                frame_ls = []
+                duration_ls = []
+            
             while not done:
                 reward, done= self.test_agent.play_step(self.net, 0, self.device)
                 episode_reward += reward
-                self.test_env.render()
+                frame = env.render('rgb_array')
+                frame = np.array(frame)
+                if self.save_video:
+                    frame_ls.append(frame)
+                    duration_ls.append(1/self.fps)
+                frame = cv2.resize(frame, (512, 480))
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                
+                cv2.imshow("QMario", frame)
+                cv2.waitKey(20)
+
+            if self.save_video:
+                clip = ImageSequenceClip(frame_ls, durations=duration_ls)
+                clip.write_videofile(f"test_video/mario_episode{episode}_reward{episode_reward}.mp4", fps=60,)    
 
             total_rewards.append(episode_reward)
 
@@ -190,7 +213,7 @@ class DDQNLightning(pl.LightningModule):
     
     def test_step(self, *args, **kwargs) -> Dict[str, Tensor]:
         """Evaluate the agent for 10 episodes."""
-        test_reward = self.run_n_episodes(self.test_env, 1, 0)
+        test_reward = self.run_n_episodes(self.test_env, 10, 0)
         avg_reward = sum(test_reward) / len(test_reward)
         return {"test_reward": avg_reward}
 
