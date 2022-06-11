@@ -7,3 +7,4 @@ test_video
 train_video
 wrapper_test_video
 *.ipynb
+train_test.py

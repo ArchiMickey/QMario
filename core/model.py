@@ -15,6 +15,7 @@ from .lr_scheduler import NoamLR
 from torch import nn
 import cv2
 from moviepy.editor import *
+import wandb
 
 from .neural import CNN
 
@@ -36,6 +37,7 @@ class DDQNLightning(pl.LightningModule):
         avg_rewards_len: int = 100,
         save_video: bool = False,
         fps: int = None,
+        video_rate: int = 50,
     ) -> None:
         super().__init__()
         
@@ -52,6 +54,7 @@ class DDQNLightning(pl.LightningModule):
         self.episode_length = episode_length
         self.save_video = save_video
         self.fps = fps
+        self.video_rate = video_rate
         
         self.save_hyperparameters()
         
@@ -83,11 +86,16 @@ class DDQNLightning(pl.LightningModule):
         self.avg_rewards = float(np.mean(list(self.total_rewards)))
         
         self.populate(self.hparams.warm_start_size)
+        
+        self.recording = True
+        self.frame_ls = []
+        self.duration_ls = [] # For recording videos
     
     def populate(self, steps: int = 1000):
         for i in range(steps):
             print(f"warming up at step {i+1}", end='\r')
             self.agent.play_step(self.net, epsilon=1)
+        self.env.reset()
     
     def run_n_episodes(self, env, n_episodes: int = 1, epsilon: float = 1.0) -> List[int]:
         """Carries out N episodes of the environment with the current agent.
@@ -103,9 +111,8 @@ class DDQNLightning(pl.LightningModule):
             done = False
             episode_reward = 0
             
-            if self.save_video:
-                frame_ls = []
-                duration_ls = []
+            self.frame_ls.clear()
+            self.duration_ls.clear()
             
             while not done:
                 reward, done= self.test_agent.play_step(self.net, 0, self.device)
@@ -113,16 +120,16 @@ class DDQNLightning(pl.LightningModule):
                 frame = env.render('rgb_array')
                 frame = np.array(frame)
                 if self.save_video:
-                    frame_ls.append(frame)
-                    duration_ls.append(1/self.fps)
-                frame = cv2.resize(frame, (512, 480))
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    self.frame_ls.append(frame)
+                    self.duration_ls.append(1/self.fps)
+                # frame = cv2.resize(frame, (512, 480))
+                # frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 
                 cv2.imshow("QMario", frame)
                 cv2.waitKey(20)
 
             if self.save_video:
-                clip = ImageSequenceClip(frame_ls, durations=duration_ls)
+                clip = ImageSequenceClip(self.frame_ls, durations=self.duration_ls)
                 clip.write_videofile(f"test_video/mario_episode{episode}_reward{episode_reward}.mp4", fps=60,)    
 
             total_rewards.append(episode_reward)
@@ -179,11 +186,16 @@ class DDQNLightning(pl.LightningModule):
         
         if self.trainer.strategy in {"ddp", "dp"}:
             loss = loss.unsqueeze(0)
+            
+        if self.recording:
+            frame = self.env.render('rgb_array')
+            frame = np.array(frame)
+            self.frame_ls.append(frame)
+            self.duration_ls.append(1/self.fps)
         
         if done:
             self.total_rewards.append(self.episode_reward)
             self.avg_rewards = float(np.mean(list(self.total_rewards)))
-            self.total_episodes += 1
             self.log_dict(
             {
                 "episode_reward": self.episode_reward,
@@ -191,6 +203,19 @@ class DDQNLightning(pl.LightningModule):
                 "avg_reward": self.avg_rewards,
             }
             )
+            
+            if self.recording:
+                clip = ImageSequenceClip(self.frame_ls, durations=self.duration_ls)
+                clip.write_videofile(f"train_video/mario_episode{self.total_episodes}_reward{self.episode_reward}.mp4", fps=60,)
+                wandb.log({f"episode{self.total_episodes}_gameplay": wandb.Video(f"train_video/mario_episode{self.total_episodes}_reward{self.episode_reward}.mp4")})
+                self.frame_ls.clear()
+                self.duration_ls.clear()
+            
+            self.total_episodes += 1
+            if self.total_episodes % self.video_rate == 0:
+                self.recording = True
+            else:
+                self.recording = False
             self.episode_reward = 0
             
         log = {

@@ -21,7 +21,7 @@ class Agent:
             state = np.array(self.state)
             state = torch.Tensor(state)
             
-            if device.type not in ['cpu']:
+            if device not in ['cpu']:
                 state = state.cuda(device)
                 
             state = state.unsqueeze(0)

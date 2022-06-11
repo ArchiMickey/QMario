@@ -29,9 +29,13 @@ model = DDQNLightning(
     episode_length=4096,
     n_steps=2,
     replay_size=100000,
+    eps_start=0.01,
     eps_decay=0.9999,
     eps_min=0.01,
     sync_rate=250000,
+    save_video=True,
+    fps=24,
+    video_rate=50,
 )
 # ic(model)
 
@@ -53,4 +57,4 @@ trainer = pl.Trainer(
     callbacks=[checkpoint_callback, LearningRateMonitor(logging_interval='step')],
 )
 
-trainer.fit(model)
+trainer.fit(model, ckpt_path="model/qmario-epoch=40312.ckpt")
