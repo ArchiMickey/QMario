@@ -11,6 +11,7 @@ from .replay_buffer import MultiStepBuffer, RLDataset
 from .agent import Agent
 from .env_wrapper import make_mario, record_mario
 from .lr_scheduler import NoamLR
+from .loss import ddqn_loss
 
 from torch import nn
 import cv2

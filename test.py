@@ -1,6 +1,6 @@
 import pytorch_lightning as pl
 
-from core.model import DDQNLightning
+from core.ddqn import DDQNLightning
 
 model = DDQNLightning(
     batch_size=256,

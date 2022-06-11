@@ -2,7 +2,7 @@ import torch
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
 import wandb
-from core.model import DDQNLightning
+from core.ddqn import DDQNLightning
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 from datetime import datetime
 from icecream import ic
