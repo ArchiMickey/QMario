@@ -22,4 +22,4 @@ https://user-images.githubusercontent.com/40712047/173172223-7826b063-5432-41e0-
 
 # Discussion
 
-I think the training efficiency can be enhanced by adding prioritised replay buffer. The training process at the second stage of the game is relatively low compared to the first stage. Adding dueling network and noisy network may also be helpful to enhancing the training performance
+I think the training efficiency can be enhanced by adding prioritised replay buffer. The training process at the second stage of the game is relatively low compared to the first stage. Adding dueling network and noisy network may also be helpful to enhancing the training performance. Maybe trying a Rainbow DQN is my upcoming project?
