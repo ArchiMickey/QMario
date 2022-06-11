@@ -1,7 +1,5 @@
-# QMario
-
 # Description
-This is a personal project to train an AI agent playing the SuperMarioBros. The environment is created by OpenAI gym. The specification of the environment can be found [here](https://github.com/Kautenja/gym-super-mario-bros). The framework of this project is [Pytorch Lightning](https://www.pytorchlightning.ai/).
+QMario is a personal project to train an AI agent playing the SuperMarioBros. The environment is created by OpenAI gym. The specification of the environment can be found [here](https://github.com/Kautenja/gym-super-mario-bros). The framework of this project is [Pytorch Lightning](https://www.pytorchlightning.ai/).
 
 # Model
 The neural network is just a simple double deep q network. The replay buffer is a multistep replay buffer.
