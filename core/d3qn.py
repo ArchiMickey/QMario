@@ -7,7 +7,7 @@ from typing import Dict, OrderedDict, List, Tuple
 from torch.optim import Adam, Optimizer
 from torch.utils.data import DataLoader
 
-from .replay_buffer import PERBuffer, PER_RLDataset
+from .replay_buffer import MultiStepPERBuffer, PER_RLDataset
 from .agent import Agent
 from .env_wrapper import make_mario
 from .lr_scheduler import NoamLR
@@ -75,7 +75,7 @@ class D3QNLightning(pl.LightningModule):
         for p in self.target_net.parameters():
             p.requires_grad = False
         
-        self.buffer = PERBuffer(self.replay_size)
+        self.buffer = MultiStepPERBuffer(self.replay_size, n_steps=n_steps)
         self.agent = Agent(self.env, self.buffer)
         self.test_agent = Agent(self.test_env, self.buffer)
         
