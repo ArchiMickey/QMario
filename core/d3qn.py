@@ -133,7 +133,10 @@ class D3QNLightning(pl.LightningModule):
 
             if self.save_video:
                 clip = ImageSequenceClip(self.frame_ls, durations=self.duration_ls)
-                clip.write_videofile(f"test_video/mario_episode{episode}_reward{episode_reward}.mp4", fps=60,)    
+                clip.write_videofile(f"test_video/mario_episode{episode}_reward{episode_reward}.mp4",
+                                     fps=60,
+                                     codec='mpeg4'
+                                     )    
 
             total_rewards.append(episode_reward)
 
@@ -183,7 +186,9 @@ class D3QNLightning(pl.LightningModule):
             
             if self.recording:
                 clip = ImageSequenceClip(self.frame_ls, durations=self.duration_ls)
-                clip.write_videofile(f"train_video/mario_episode{self.total_episodes}_reward{self.episode_reward}.mp4", fps=60,)
+                clip.write_videofile(f"train_video/mario_episode{self.total_episodes}_reward{self.episode_reward}.mp4",
+                                     fps=60,
+                                     )
                 wandb.log({f"episode{self.total_episodes}_gameplay": wandb.Video(f"train_video/mario_episode{self.total_episodes}_reward{self.episode_reward}.mp4")})
                 self.frame_ls.clear()
                 self.duration_ls.clear()

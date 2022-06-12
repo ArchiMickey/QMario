@@ -25,13 +25,14 @@ checkpoint_callback = ModelCheckpoint(
 
 model = D3QNLightning(
     batch_size=256,
+    lr=5e-4,
     warm_start_size=10000,
-    episode_length=4096,
+    episode_length=4500,
     n_steps=2,
     replay_size=100000,
-    eps_start=0.01,
+    eps_start=1,
     eps_decay=0.9999,
-    eps_min=0.01,
+    eps_min=0.1,
     sync_rate=250000,
     save_video=True,
     fps=24,
@@ -40,7 +41,7 @@ model = D3QNLightning(
 # ic(model)
 
 now_dt = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
-wandb.init(name=f"qMario-d3qn_test-{now_dt}")
+wandb.init(name=f"qMario-d3qn-{now_dt}")
 wandb.watch(model)
 
 wandb_logger = WandbLogger()
@@ -50,11 +51,11 @@ trainer = pl.Trainer(
     devices = 1 if torch.cuda.is_available() else None,
     max_epochs=400000,
     logger=wandb_logger,
-    # gradient_clip_val= 5.0,
+    gradient_clip_val= 2.0,
     # val_check_interval=50,
-    # auto_lr_find=True,
+    auto_lr_find=True,
     benchmark=False,
     callbacks=[checkpoint_callback, LearningRateMonitor(logging_interval='step')],
 )
 
-trainer.fit(model, ckpt_path="model/qmario-epoch=40312.ckpt")
+trainer.fit(model)
