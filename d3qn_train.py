@@ -9,7 +9,7 @@ from icecream import ic
 
 checkpoint_callback = ModelCheckpoint(
     save_top_k=3,
-    monitor="avg_reward",
+    monitor="episode_reward",
     mode="max",
     dirpath="model/",
     filename="qmario-{epoch:02d}",
@@ -24,15 +24,16 @@ checkpoint_callback = ModelCheckpoint(
 # )
 
 model = D3QNLightning(
-    batch_size=256,
-    lr=5e-4,
+    batch_size=128,
+    lr=0.00025,
     warm_start_size=10000,
     episode_length=4500,
-    n_steps=2,
+    gamma=0.9,
+    n_steps=4,
     replay_size=100000,
     eps_start=1,
     eps_decay=0.9999,
-    eps_min=0.05,
+    eps_min=0.01,
     sync_rate=250000,
     save_video=True,
     fps=24,
@@ -51,9 +52,10 @@ trainer = pl.Trainer(
     devices = 1 if torch.cuda.is_available() else None,
     max_epochs=400000,
     logger=wandb_logger,
-    gradient_clip_val= 2.0,
+    gradient_clip_val= 15.0,
     # val_check_interval=50,
     auto_lr_find=True,
+    auto_scale_batch_size="power",
     benchmark=False,
     callbacks=[checkpoint_callback, LearningRateMonitor(logging_interval='step')],
 )
