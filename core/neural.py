@@ -1,7 +1,61 @@
 from typing import Tuple
 import numpy as np
-from torch import nn
+from torch import Tensor, nn
+from torch.nn import functional as F
 import torch
+import math
+
+class NoisyLinear(nn.Linear):
+    """Noisy Layer using Independent Gaussian Noise.
+    based on https://github.com/PacktPublishing/Deep-Reinforcement-Learning-Hands-On-Second-Edition/blob/master/
+    Chapter08/lib/dqn_extra.py#L19
+    """
+
+    def __init__(self, in_features: int, out_features: int, sigma_init: float = 0.017, bias: bool = True):
+        """
+        Args:
+            in_features: number of inputs
+            out_features: number of outputs
+            sigma_init: initial fill value of noisy weights
+            bias: flag to include bias to linear layer
+        """
+        super().__init__(in_features, out_features, bias=bias)
+
+        weights = torch.full((out_features, in_features), sigma_init)
+        self.sigma_weight = nn.Parameter(weights)
+        epsilon_weight = torch.zeros(out_features, in_features)
+        self.register_buffer("epsilon_weight", epsilon_weight)
+
+        if bias:
+            bias = torch.full((out_features,), sigma_init)
+            self.sigma_bias = nn.Parameter(bias)
+            epsilon_bias = torch.zeros(out_features)
+            self.register_buffer("epsilon_bias", epsilon_bias)
+
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        """initializes or resets the paramseter of the layer."""
+        std = math.sqrt(3 / self.in_features)
+        self.weight.data.uniform_(-std, std)
+        self.bias.data.uniform_(-std, std)
+
+    def forward(self, input_x: Tensor) -> Tensor:
+        """Forward pass of the layer.
+        Args:
+            input_x: input tensor
+        Returns:
+            output of the layer
+        """
+        self.epsilon_weight.normal_()
+        bias = self.bias
+        if bias is not None:
+            self.epsilon_bias.normal_()
+            bias = bias + self.sigma_bias * self.epsilon_bias.data
+
+        noisy_weights = self.sigma_weight * self.epsilon_weight.data + self.weight
+
+        return F.linear(input_x, noisy_weights, bias)
 
 class CNN(nn.Module):
     
@@ -58,14 +112,18 @@ class DuelingCNN(nn.Module):
         
         #advantage head
         self.head_adv = nn.Sequential(
-            nn.Linear(conv_out_size, 512),
+            nn.Linear(conv_out_size, 1024),
             nn.ReLU(),
-            nn.Linear(512, n_actions),
+            NoisyLinear(1024, 512),
+            nn.ReLU(),
+            NoisyLinear(512, n_actions),
         )
         
         #value head
         self.head_val = nn.Sequential(
-            nn.Linear(conv_out_size, 512),
+            nn.Linear(conv_out_size, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, 512),
             nn.ReLU(),
             nn.Linear(512, 1),
         )
