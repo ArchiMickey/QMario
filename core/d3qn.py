@@ -5,12 +5,12 @@ import torch
 from torch import Tensor
 from typing import Dict, OrderedDict, List, Tuple
 from torch.optim import Adam, Optimizer
+from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from torch.utils.data import DataLoader
 
 from .replay_buffer import MultiStepPERBuffer, PER_RLDataset
 from .agent import Agent
 from .env_wrapper import make_mario
-from .lr_scheduler import NoamLR
 from .loss import per_ddqn_loss
 
 from torch import nn
@@ -245,7 +245,11 @@ class D3QNLightning(pl.LightningModule):
         return {
             "optimizer": optimizer,
             "lr_scheduler": {
-                "scheduler": NoamLR(optimizer=optimizer, warmup_steps=10000)
+                "scheduler": CosineAnnealingWarmRestarts(optimizer=optimizer,
+                                                         T_0=400000,
+                                                         T_mult=2,
+                                                         eta_min=1e-6
+                                                         )
             }
         }
 

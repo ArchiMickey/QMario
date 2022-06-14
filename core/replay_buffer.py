@@ -127,7 +127,7 @@ class MultiStepBuffer(ReplayBuffer):
         return total_reward
 
 class PERBuffer(ReplayBuffer):
-    def __init__(self, buffer_size, prob_alpha=0.6, beta_start=0.4, beta_frames=100000):
+    def __init__(self, buffer_size, prob_alpha=0.6, beta_start=0.4, beta_frames=50000):
         super().__init__(capacity=buffer_size)
         self.beta_start = beta_start
         self.beta = beta_start

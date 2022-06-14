@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from .replay_buffer import MultiStepBuffer, RLDataset
 from .agent import Agent
 from .env_wrapper import make_mario, record_mario
-from .lr_scheduler import NoamLR
+from .Noam_lr import NoamLR
 from .loss import ddqn_loss
 
 from torch import nn

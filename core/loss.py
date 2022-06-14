@@ -107,7 +107,7 @@ def per_ddqn_loss(
         # Standard SmoothL1Loss between the state action values of the current state and the
         # expected state action values of the next state
         
-        loss = (state_action_values - expected_state_action_values) ** 2
+        loss = nn.SmoothL1Loss()(state_action_values, expected_state_action_values)
         losses_v = batch_weights * loss
         
         return losses_v.mean(), (losses_v + 1e-5).data.cpu().numpy()
