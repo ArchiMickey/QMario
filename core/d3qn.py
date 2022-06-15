@@ -18,7 +18,7 @@ import cv2
 from moviepy.editor import *
 import wandb
 
-from .neural import DuelingCNN
+from .network import NoisyDuelingCNN
 
 from icecream import ic
 
@@ -95,6 +95,10 @@ class D3QNLightning(pl.LightningModule):
         self.duration_ls = [] # For recording videos
     
     def populate(self, steps: int = 1000):
+        """Carries out some episodes of the environment to fill the replay buffer before training.
+        Args:
+            steps: the number of steps for populating.
+        """
         for i in range(steps):
             print(f"warming up at step {i+1}", end='\r')
             self.agent.play_step(self.net, epsilon=1)
