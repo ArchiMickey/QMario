@@ -69,8 +69,8 @@ class D3QNLightning(pl.LightningModule):
         obs_dim = self.env.observation_space.shape
         n_actions = self.env.action_space.n
         
-        self.net = DuelingCNN(obs_dim, n_actions)
-        self.target_net = DuelingCNN(obs_dim, n_actions)
+        self.net = NoisyDuelingCNN(obs_dim, n_actions)
+        self.target_net = NoisyDuelingCNN(obs_dim, n_actions)
         
         for p in self.target_net.parameters():
             p.requires_grad = False

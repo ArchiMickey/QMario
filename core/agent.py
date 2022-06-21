@@ -15,7 +15,7 @@ class Agent:
         self.state = self.env.reset()
     
     def get_action(self, net:nn.Module, epsilon: float, device: str):
-        if np.random.random() < epsilon:
+        if np.random.random() < 0:
             action = self.env.action_space.sample()
         else:
             state = np.array(self.state)
@@ -25,6 +25,7 @@ class Agent:
                 state = state.cuda(device)
                 
             state = state.unsqueeze(0)
+            ic(state.shape)
             q_values = net(state)
             _, action = torch.max(q_values, dim=1)
             action = int(action.item())
