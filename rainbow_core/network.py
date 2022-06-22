@@ -23,22 +23,31 @@ class RainbowDQN(nn.Module):
 
         # set common feature layer
         self.conv = nn.Sequential(
-            nn.Conv2d(in_channels=in_dim[0], out_channels=32, kernel_size=8, stride=4),
+            nn.Conv2d(in_channels=in_dim[0], out_channels=64, kernel_size=9, stride=1),
             nn.ReLU(),
-            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2),
+            nn.Conv2d(in_channels=64, out_channels=128, kernel_size=5, stride=2),
             nn.ReLU(),
-            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1),
+            nn.AvgPool2d(3, 1),
+            nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=2),
             nn.ReLU(),
+            nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1),
+            nn.ReLU(),
+            nn.AvgPool2d(3, 1),
+            nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, stride=1),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=3, stride=1),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d(1),
             nn.Flatten(),
         )
         
         # set advantage layer
-        self.advantage_hidden_layer = NoisyLinear(3136, 512)
-        self.advantage_layer = NoisyLinear(512, out_dim * atom_size)
+        self.advantage_hidden_layer = NoisyLinear(1024, 4096)
+        self.advantage_layer = NoisyLinear(4096, out_dim * atom_size)
 
         # set value layer
-        self.value_hidden_layer = NoisyLinear(3136, 512)
-        self.value_layer = NoisyLinear(512, atom_size)
+        self.value_hidden_layer = NoisyLinear(1024, 4096)
+        self.value_layer = NoisyLinear(4096, atom_size)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward method implementation."""
