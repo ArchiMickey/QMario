@@ -152,10 +152,11 @@ class RainbowLightning(pl.LightningModule):
 
             if self.save_video:
                 clip = ImageSequenceClip(frames, durations=durations)
-                clip.write_videofile(f"test_video/mario_episode{self.total_episodes}_reward{episode_reward}.mp4",
+                clip.write_videofile(f"train_video/mario_episode{self.total_episodes}_reward{episode_reward}.mp4",
                                      fps=self.fps,
                                      )
-                wandb.log({f"gameplay": wandb.Video(f"test_video/mario_episode{self.total_episodes}_reward{episode_reward}.mp4")})
+                wandb.log({f"gameplay": wandb.Video(f"train_video/mario_episode{self.total_episodes}_reward{episode_reward}.mp4",
+                                                    caption=f"reward: {episode_reward}")})
             self.test_env.reset()
             total_rewards.append(episode_reward)
 
@@ -185,7 +186,6 @@ class RainbowLightning(pl.LightningModule):
             # Double DQN
             next_action = self.net(next_state).argmax(1)
             next_dist = self.target_net.dist(next_state)
-            ic(len(self.memory), next_state.shape, next_action.shape)
             next_dist = next_dist[range(self.batch_size), next_action]
 
             t_z = reward + (1 - done) * gamma * self.support
@@ -232,9 +232,6 @@ class RainbowLightning(pl.LightningModule):
     
     def training_step(self, batch: Tuple[Tensor, Tensor], nb_batch) -> OrderedDict:
         device = self.get_device(batch)
-        
-        
-        
         action = self.agent.select_action(self.net, device)
         reward, done = self.agent.step(action)
         
@@ -319,7 +316,7 @@ class RainbowLightning(pl.LightningModule):
                 "scheduler": CosineAnnealingWarmRestarts(optimizer=optimizer,
                                                          T_0=400000,
                                                          T_mult=2,
-                                                         eta_min=1e-6
+                                                         eta_min=self.min_lr
                                                          )
             }
         }
@@ -331,6 +328,7 @@ class RainbowLightning(pl.LightningModule):
             dataset=dataset,
             batch_size=self.batch_size,
             num_workers=6,
+            drop_last=True,
         )
         return dataloader
 
