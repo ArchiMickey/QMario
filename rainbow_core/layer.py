@@ -6,6 +6,9 @@ import torch.nn.functional as F
 
 class NoisyLinear(nn.Module):
     """Noisy linear module for NoisyNet.
+    
+    
+        
     Attributes:
         in_features (int): input size of linear module
         out_features (int): output size of linear module
@@ -47,14 +50,14 @@ class NoisyLinear(nn.Module):
 
     def reset_parameters(self):
         """Reset trainable network parameters (factorized gaussian noise)."""
-        mu_range = 1/math.sqrt(self.in_features)
+        mu_range = 1 / math.sqrt(self.in_features)
         self.weight_mu.data.uniform_(-mu_range, mu_range)
         self.weight_sigma.data.fill_(
-            self.std_init/math.sqrt(self.in_features)
+            self.std_init / math.sqrt(self.in_features)
         )
         self.bias_mu.data.uniform_(-mu_range, mu_range)
         self.bias_sigma.data.fill_(
-            self.std_init/math.sqrt(self.out_features)
+            self.std_init / math.sqrt(self.out_features)
         )
 
     def reset_noise(self):

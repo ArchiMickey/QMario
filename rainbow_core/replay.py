@@ -237,20 +237,36 @@ class RLDataset(IterableDataset):
         sample_size: number of experiences to sample at a time
     """
 
-    def __init__(self, memory: PrioritizedReplayBuffer, sample_size: int = 200, beta: float = 0.6) -> None:
+    def __init__(self, memory: PrioritizedReplayBuffer, sample_size: int = 200, beta: float = 0.6, use_n_step: bool = False,
+                 memory_n: ReplayBuffer = None) -> None:
         self.memory = memory
         self.beta = beta
         self.sample_size = sample_size
+        self.use_n_step = use_n_step
+        if self.use_n_step:
+            self.memory_n = memory_n
 
     def __iter__(self) -> Iterator[Tuple]:
-        batches = self.memory.sample_batch(beta=self.beta)
-        state = batches["obs"]
-        next_state = batches["next_obs"]
-        action = batches["acts"]
-        reward = batches["rews"].reshape(-1, 1)
-        done = batches["done"].reshape(-1, 1)
-        weights = batches["weights"].reshape(-1, 1)
-        indices = batches["indices"]
+        samples = self.memory.sample_batch(beta=self.beta)
+        state = samples["obs"]
+        next_state = samples["next_obs"]
+        action = samples["acts"]
+        reward = samples["rews"].reshape(-1, 1)
+        done = samples["done"].reshape(-1, 1)
+        weights = samples["weights"].reshape(-1, 1)
+        indices = samples["indices"]
+        if self.use_n_step:
+            n_samples = self.memory_n.sample_batch_from_idxs(indices)
+            n_state = n_samples["obs"]
+            n_next_state = n_samples["next_obs"]
+            n_action = n_samples["acts"]
+            n_reward = n_samples["rews"].reshape(-1, 1)
+            n_done = n_samples["done"].reshape(-1, 1)
         
-        for i in range(len(done)):
-            yield (state[i], action[i], reward[i], next_state[i], done[i],), weights[i], indices[i]
+        if self.use_n_step:
+            for i in range(len(done)):
+                yield (state[i], action[i], reward[i], next_state[i], done[i],), weights[i], indices[i], (n_state[i], n_action[i], n_reward[i], n_next_state[i], n_done[i],)
+        
+        else:
+            for i in range(len(done)):
+                yield (state[i], action[i], reward[i], next_state[i], done[i],), weights[i], indices[i]

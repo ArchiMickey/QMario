@@ -69,15 +69,15 @@ class RainbowLightning(pl.LightningModule):
         
         self.env = make_mario(env_name=env)
         self.test_env = make_mario(env_name=env)
-        obs_dim = self.env.observation_space.shape
-        action_dim = self.env.action_space.n
+        self.obs_dim = self.env.observation_space.shape
+        self.action_dim = self.env.action_space.n
         
-        self.memory = PrioritizedReplayBuffer(obs_dim, memory_size, episode_length, alpha=alpha, n_step=self.n_step)
+        self.memory = PrioritizedReplayBuffer(self.obs_dim, memory_size, episode_length, alpha=alpha, n_step=self.n_step, gamma=gamma)
         
         self.use_n_step = True if self.n_step > 1 else False
         if self.use_n_step:
             self.memory_n = ReplayBuffer(
-                obs_dim, memory_size, episode_length, n_step=n_step, gamma=gamma
+                self.obs_dim, memory_size, episode_length, n_step=n_step, gamma=gamma
             )
         else:
             self.memory_n = None
@@ -86,10 +86,10 @@ class RainbowLightning(pl.LightningModule):
         
         self.support = torch.linspace(
             self.v_min, self.v_max, self.atom_size
-        )
+        ).cuda()
         
-        self.net = RainbowDQN(obs_dim, action_dim, self.atom_size, self.support)
-        self.target_net = RainbowDQN(obs_dim, action_dim, self.atom_size, self.support)
+        self.net = RainbowDQN(self.obs_dim, self.action_dim, self.atom_size, self.support)
+        self.target_net = RainbowDQN(self.obs_dim, self.action_dim, self.atom_size, self.support)
         self.target_net.load_state_dict(self.net.state_dict())
         self.target_net.eval()
         
@@ -99,8 +99,6 @@ class RainbowLightning(pl.LightningModule):
         
         self.episode_reward: float = 0
         self.total_episodes: int = 0
-        
-        self.populate()
             
     def populate(self):
         """Carries out some episodes of the environment to fill the replay buffer before training.
@@ -110,11 +108,9 @@ class RainbowLightning(pl.LightningModule):
         i = 0
         while(len(self.memory) < self.episode_length):
             print(f"warming up at step {i+1}", end='\r')
-            action = self.agent.select_action(self.net, 'cpu')
+            action = self.agent.select_action(self.net, self.device)
             self.agent.step(action)
             i += 1
-        self.net.support = self.net.support.cuda()
-        self.support = self.support.cuda()
     
     def run_n_episodes(self, env, n_episodes: int = 1, epsilon: float = 1.0) -> List[int]:
         """Carries out N episodes of the environment with the current agent.
@@ -165,17 +161,6 @@ class RainbowLightning(pl.LightningModule):
     def forward(self, state: Tensor):
         return self.net(state).float()
     
-    def _compute_nstep_loss(self, samples: Dict[str, np.ndarray], gamma: float) -> torch.Tensor:
-        device = self.device  # for shortening the following lines
-        state = torch.FloatTensor(samples["obs"]).cuda()
-        next_state = torch.FloatTensor(samples["next_obs"]).cuda()
-        action = torch.LongTensor(samples["acts"]).cuda()
-        reward = torch.FloatTensor(samples["rews"].reshape(-1, 1)).cuda()
-        done = torch.FloatTensor(samples["done"].reshape(-1, 1)).cuda()
-        exps = (state, action, reward, next_state, done)
-        return self._compute_dqn_loss(exps, gamma=gamma)
-        
-    
     def _compute_dqn_loss(self, exps, gamma: float):
         state, action, reward, next_state, done = exps
         
@@ -216,19 +201,21 @@ class RainbowLightning(pl.LightningModule):
 
         return elementwise_loss
     
-    def loss_fn(self, exps, weights, indices):
+    def loss_fn(self, exps, weights, n_exps):
         elementwise_loss = self._compute_dqn_loss(exps, self.gamma)
         
         loss = torch.mean(elementwise_loss * weights)
         
         if self.use_n_step:
             gamma = self.gamma ** self.n_step
-            samples = self.memory_n.sample_batch_from_idxs(indices.cpu())
-            elementwise_loss_n_loss = self._compute_nstep_loss(samples, gamma)
+            elementwise_loss_n_loss = self._compute_dqn_loss(n_exps, gamma)
             elementwise_loss = elementwise_loss + elementwise_loss_n_loss
-            
             loss = torch.mean(elementwise_loss * weights)
         return loss, elementwise_loss
+    
+    def on_train_start(self) -> None:
+        self.populate()
+        return super().on_train_start()
     
     def training_step(self, batch: Tuple[Tensor, Tensor], nb_batch) -> OrderedDict:
         device = self.get_device(batch)
@@ -236,9 +223,12 @@ class RainbowLightning(pl.LightningModule):
         reward, done = self.agent.step(action)
         
         self.episode_reward += reward
-        
-        exps, weights, indices = batch
-        loss, elementwise_loss = self.loss_fn(exps, weights, indices)
+        if self.use_n_step:
+            exps, weights, indices, n_exps = batch
+        else:
+            exps, weights, indices = batch
+            n_exps = None
+        loss, elementwise_loss = self.loss_fn(exps, weights, n_exps)
         
         if self.trainer.strategy in {"ddp", "dp"}:
             loss = loss.unsqueeze(0)
@@ -255,6 +245,7 @@ class RainbowLightning(pl.LightningModule):
             }
             )
             if self.total_episodes % self.video_rate == 0:
+                print("Testing...")
                 test_rewards = self.run_n_episodes(self.test_env, 1, 0)
                 avg_test_reward = sum(test_rewards) / len(test_rewards)
                 self.log("avg_test_reward", avg_test_reward)
@@ -309,7 +300,7 @@ class RainbowLightning(pl.LightningModule):
     
     def configure_optimizers(self) -> List[Optimizer]:
         """Initialize Adam optimizer."""
-        optimizer = Adam(self.net.parameters(), lr=self.lr)
+        optimizer = Adam(self.net.parameters(), lr=self.lr, eps=1.5e-4)
         return {
             "optimizer": optimizer,
             "lr_scheduler": {
@@ -323,7 +314,7 @@ class RainbowLightning(pl.LightningModule):
 
     def _dataloader(self) -> DataLoader:
         """Initialize the Replay Buffer dataset used for retrieving experiences."""
-        dataset = RLDataset(self.memory, self.episode_length, self.beta)
+        dataset = RLDataset(self.memory, self.episode_length, self.beta, self.use_n_step, self.memory_n)
         dataloader = DataLoader(
             dataset=dataset,
             batch_size=self.batch_size,
@@ -347,10 +338,14 @@ class RainbowLightning(pl.LightningModule):
 if __name__ == "__main__":
     from pytorch_lightning import Trainer
     trainer = Trainer(
+        max_epochs=1,
         accelerator="gpu",
         devices=1,
         gradient_clip_val=10,
     )
-    model = RainbowLightning()
+    model = RainbowLightning(
+        batch_size=16,
+        episode_length=20,
+    )
     ic(model)
     trainer.fit(model=model)

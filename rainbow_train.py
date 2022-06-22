@@ -16,17 +16,18 @@ checkpoint_callback = ModelCheckpoint(
 )
 
 Model = RainbowLightning(
-    batch_size=256,
-    lr=2.5e-5,
+    batch_size=64,
+    lr=6.25e-5,
     min_lr=1e-8,
-    gamma=0.95,
+    gamma=0.9,
     target_update=10000,
-    memory_size=25000,
-    episode_length=4500,
+    memory_size=30000,
+    episode_length=10000,
+    alpha=0.5,
     v_min=-50,
     v_max=50,
     atom_size=51,
-    n_step=4,
+    n_step=3,
     save_video=True,
     fps=24,
     video_rate=20,
@@ -34,13 +35,13 @@ Model = RainbowLightning(
 
 now_dt = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
 
-wandb_logger = WandbLogger(name=f"qMario-rainbow-{now_dt}", log_model="all")
-wandb_logger.watch(Model, log='all')
+wandb_logger = WandbLogger(name=f"qMario-rainbow-{now_dt}")
+wandb_logger.watch(Model)
 
 trainer = pl.Trainer(
     accelerator="gpu",
     devices = 1 if torch.cuda.is_available() else None,
-    max_epochs=4000000,
+    max_epochs=400000,
     logger=wandb_logger,
     gradient_clip_val= 10.0,
     # val_check_interval=50,
