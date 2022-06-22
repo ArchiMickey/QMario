@@ -1,17 +1,13 @@
-from pyexpat import model
-from cv2 import triangulatePoints
 import torch
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
-import wandb
 from rainbow_core.rainbow import RainbowLightning
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 from datetime import datetime
-from icecream import ic
 
 checkpoint_callback = ModelCheckpoint(
     save_top_k=1,
-    monitor="test_reward",
+    monitor="avg_test_reward",
     mode="max",
     dirpath="model/",
     filename="qmario-{epoch:02d}",
@@ -19,38 +15,38 @@ checkpoint_callback = ModelCheckpoint(
     save_last=True,
 )
 
-model = RainbowLightning(
-    batch_size=128,
-    lr=2.5e-4,
+Model = RainbowLightning(
+    batch_size=256,
+    lr=2.5e-5,
     min_lr=1e-8,
+    gamma=0.95,
     target_update=10000,
-    memory_size=50000,
-    episode_length=500,
-    v_min=-200,
-    v_max=200,
+    memory_size=25000,
+    episode_length=4500,
+    v_min=-50,
+    v_max=50,
     atom_size=51,
     n_step=4,
     save_video=True,
     fps=24,
-    video_rate=1,
+    video_rate=20,
 )
 
 now_dt = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
-wandb.init(name=f"qMario-test-{now_dt}")
-wandb.watch(model)
 
-wandb_logger = WandbLogger()
+wandb_logger = WandbLogger(name=f"qMario-rainbow-{now_dt}", log_model="all")
+wandb_logger.watch(Model, log='all')
 
 trainer = pl.Trainer(
     accelerator="gpu",
     devices = 1 if torch.cuda.is_available() else None,
-    max_epochs=100,
+    max_epochs=4000000,
     logger=wandb_logger,
-    gradient_clip_val= 5.0,
+    gradient_clip_val= 10.0,
     # val_check_interval=50,
     auto_lr_find=True,
     callbacks=[checkpoint_callback, LearningRateMonitor(logging_interval='step')],
 )
 
 # trainer.tune(model)
-trainer.fit(model)
+trainer.fit(Model)

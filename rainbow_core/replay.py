@@ -252,6 +252,5 @@ class RLDataset(IterableDataset):
         weights = batches["weights"].reshape(-1, 1)
         indices = batches["indices"]
         
-        ic(len(weights))
         for i in range(len(done)):
             yield (state[i], action[i], reward[i], next_state[i], done[i],), weights[i], indices[i]
