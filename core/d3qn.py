@@ -8,9 +8,9 @@ from torch.optim import Adam, Optimizer
 from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from torch.utils.data import DataLoader
 
-from .replay_buffer import MultiStepPERBuffer, PER_RLDataset
+from .replay import MultiStepPERBuffer, PER_RLDataset
 from .agent import Agent
-from .env_wrapper import make_mario
+from .mario_env import make_mario
 from .loss import per_ddqn_loss
 
 from torch import nn

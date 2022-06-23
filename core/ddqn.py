@@ -7,9 +7,9 @@ from typing import Dict, OrderedDict, List, Tuple
 from torch.optim import Adam, Optimizer
 from torch.utils.data import DataLoader
 
-from .replay_buffer import MultiStepBuffer, RLDataset
+from .replay import MultiStepBuffer, RLDataset
 from .agent import Agent
-from .env_wrapper import make_mario, record_mario
+from .mario_env import make_mario, record_mario
 from .Noam_lr import NoamLR
 from .loss import ddqn_loss
 

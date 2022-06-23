@@ -16,14 +16,13 @@ checkpoint_callback = ModelCheckpoint(
 )
 
 Model = RainbowLightning(
-    batch_size=64,
+    batch_size=128,
     lr=6.25e-5,
     min_lr=1e-8,
     gamma=0.9,
     target_update=10000,
-    memory_size=30000,
-    episode_length=10000,
-    alpha=0.5,
+    memory_size=25000,
+    episode_length=2500,
     v_min=-50,
     v_max=50,
     atom_size=51,

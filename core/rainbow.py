@@ -7,7 +7,7 @@ from torch.optim import Adam, Optimizer
 from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from torch.utils.data import DataLoader
 
-from .replay import ReplayBuffer, PrioritizedReplayBuffer, RLDataset
+from .replay import MultiStepBuffer, PERBuffer, Rainbow_RLDataset
 from .mario_env import make_mario
 from .network import RainbowDQN
 from .agent import Agent
@@ -72,18 +72,14 @@ class RainbowLightning(pl.LightningModule):
         self.obs_dim = self.env.observation_space.shape
         self.action_dim = self.env.action_space.n
         
-        self.memory = PrioritizedReplayBuffer(self.obs_dim, memory_size, episode_length, alpha=alpha, n_step=self.n_step, gamma=gamma)
+        self.buffer = PERBuffer(memory_size, prob_alpha=alpha, beta_start=beta)
         
         self.use_n_step = True if self.n_step > 1 else False
         if self.use_n_step:
-            self.memory_n = ReplayBuffer(
-                self.obs_dim, memory_size, episode_length, n_step=n_step, gamma=gamma
-            )
+            self.buffer_n = MultiStepBuffer(memory_size, n_steps=n_step, gamma=gamma)
         else:
             self.memory_n = None
-        
-        self.transition = list()
-        
+                
         self.support = torch.linspace(
             self.v_min, self.v_max, self.atom_size
         ).cuda()
@@ -94,8 +90,8 @@ class RainbowLightning(pl.LightningModule):
         self.target_net.eval()
         
         self.is_test = False
-        self.agent = Agent(self.env, self.memory, self.memory_n, self.transition, self.is_test, self.use_n_step)
-        self.test_agent = Agent(self.test_env, self.memory, None, self.transition, True)
+        self.agent = Agent(self.env, self.buffer, self.use_n_step, self.buffer_n)
+        self.test_agent = Agent(self.test_env, self.buffer, self.use_n_step, self.buffer_n)
         
         self.episode_reward: float = 0
         self.total_episodes: int = 0
@@ -106,10 +102,9 @@ class RainbowLightning(pl.LightningModule):
             steps: the number of steps for populating.
         """
         i = 0
-        while(len(self.memory) < self.episode_length):
+        while(len(self.buffer) < self.episode_length):
             print(f"warming up at step {i+1}", end='\r')
-            action = self.agent.select_action(self.net, self.device)
-            self.agent.step(action)
+            self.agent.play_step(self.net, 0, self.device)
             i += 1
     
     def run_n_episodes(self, env, n_episodes: int = 1, epsilon: float = 1.0) -> List[int]:
@@ -317,12 +312,11 @@ class RainbowLightning(pl.LightningModule):
 
     def _dataloader(self) -> DataLoader:
         """Initialize the Replay Buffer dataset used for retrieving experiences."""
-        dataset = RLDataset(self.memory, self.episode_length, self.beta, self.use_n_step, self.memory_n)
+        dataset = Rainbow_RLDataset(self.buffer, self.episode_length, self.buffer_n)
         dataloader = DataLoader(
             dataset=dataset,
             batch_size=self.batch_size,
             num_workers=6,
-            drop_last=True,
         )
         return dataloader
 

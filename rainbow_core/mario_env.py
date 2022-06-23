@@ -4,7 +4,7 @@ import gym_super_mario_bros
 from nes_py.wrappers import JoypadSpace
 # import simplified actions
 from gym_super_mario_bros.actions import RIGHT_ONLY, SIMPLE_MOVEMENT
-from gym.wrappers import GrayScaleObservation, TransformObservation, FrameStack, ResizeObservation, RecordVideo
+from gym.wrappers import GrayScaleObservation, TransformObservation, FrameStack, ResizeObservation
 from pl_bolts.models.rl.common.gym_wrappers import MaxAndSkipEnv
 
 def make_mario(env_name: str = 'SuperMarioBros-v0'):
