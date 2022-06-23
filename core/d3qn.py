@@ -8,9 +8,9 @@ from torch.optim import Adam, Optimizer
 from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from torch.utils.data import DataLoader
 
-from .replay_buffer import MultiStepPERBuffer, PER_RLDataset
+from .replay import MultiStepPERBuffer, PER_RLDataset
 from .agent import Agent
-from .env_wrapper import make_mario
+from .mario_env import make_mario
 from .loss import per_ddqn_loss
 
 from torch import nn
@@ -69,8 +69,8 @@ class D3QNLightning(pl.LightningModule):
         obs_dim = self.env.observation_space.shape
         n_actions = self.env.action_space.n
         
-        self.net = DuelingCNN(obs_dim, n_actions)
-        self.target_net = DuelingCNN(obs_dim, n_actions)
+        self.net = NoisyDuelingCNN(obs_dim, n_actions)
+        self.target_net = NoisyDuelingCNN(obs_dim, n_actions)
         
         for p in self.target_net.parameters():
             p.requires_grad = False

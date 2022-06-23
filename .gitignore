@@ -9,3 +9,4 @@ wrapper_test_video
 *.ipynb
 ddqn_train_test.py
 d3qn_train_test.py
+rainbow_train_test.py
