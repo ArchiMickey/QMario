@@ -229,7 +229,6 @@ class PERBuffer(ReplayBuffer):
         for idx, prio in zip(batch_indices, batch_priorities):
             self.priorities[idx] = prio
 
-
 class RLDataset(IterableDataset):
     """Iterable Dataset containing the ExperienceBuffer which will be updated with new experiences during training.
 
@@ -281,7 +280,6 @@ class Rainbow_RLDataset(IterableDataset):
     def __iter__(self) -> Iterator[Tuple]:
         samples, indices, weights = self.buffer.sample(self.sample_size)
         states, actions, rewards, dones, new_states = samples
-        ic(indices, weights, len(self.buffer), len(self.buffer_n), len(self.buffer_n.history), len(self.buffer_n.exp_history_queue))
         n_states, n_actions, n_rewards, n_dones, n_new_states = self.buffer_n.sample_from_idxs(indices)
         for i in range(len(dones)):
             yield (states[i], actions[i], rewards[i], dones[i], new_states[i],), indices[i], weights[i], (n_states[i], n_actions[i], n_rewards[i], n_dones[i], n_new_states[i])

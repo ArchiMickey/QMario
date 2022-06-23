@@ -14,27 +14,27 @@ class Agent:
             self.buffer_n = buffer_n
         self.reset()
         self.state = self.env.reset()
+        self.wait_list = deque(maxlen=10)
+            
     
     def reset(self):
         self.state = self.env.reset()
     
     def get_action(self, net:nn.Module, epsilon: float, device: str):
-        if np.random.random() < 0:
+        if np.random.random() < epsilon:
             action = self.env.action_space.sample()
         else:
             state = np.array(self.state)
-            state = torch.Tensor(state)
+            state = torch.FloatTensor(state)
             
             if device not in ['cpu']:
                 state = state.cuda(device)
                 
             state = state.unsqueeze(0)
             q_values = net(state)
-            _, action = torch.max(q_values, dim=1)
+            action = q_values.argmax()
+            action = action.detach().cpu().numpy()
             action = int(action.item())
-            
-            # ic()
-            # ic(action)
         
         return action
     
@@ -44,12 +44,10 @@ class Agent:
         new_state, reward, done, _ = self.env.step(action)
         exp = Experience(self.state, action, reward, done, new_state)
         if self.use_n_step:
-            # TODO implement n-step
-            wait_list = deque(maxlen=3)
-            wait_list.append(exp)
+            self.wait_list.append(exp)
             self.buffer_n.append(exp)
-            if len(self.buffer_n) > len(self.buffer):
-                self.buffer.append(exp)
+            while len(self.buffer) < len(self.buffer_n):
+                self.buffer.append(self.wait_list.popleft())
             
         else:
             self.buffer.append(exp)

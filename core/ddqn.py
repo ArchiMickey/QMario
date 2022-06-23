@@ -18,7 +18,7 @@ import cv2
 from moviepy.editor import *
 import wandb
 
-from .neural import CNN
+from .layer import CNN
 
 class DDQNLightning(pl.LightningModule):
     def __init__(

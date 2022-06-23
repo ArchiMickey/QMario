@@ -29,6 +29,7 @@ class RainbowLightning(pl.LightningModule):
         gamma: float = 0.99,
         target_update: int = 10000,
         memory_size: int = 10000,
+        warm_start_size: int = 1000,
         episode_length: int = 1024,
         # PER parameters
         alpha: float = 0.2,
@@ -53,6 +54,7 @@ class RainbowLightning(pl.LightningModule):
         self.gamma = gamma
         self.target_update = target_update
         self.memory_size = memory_size
+        self.warm_start_size = warm_start_size
         self.episode_length = episode_length
         self.alpha = alpha
         self.beta = beta
@@ -104,7 +106,7 @@ class RainbowLightning(pl.LightningModule):
         i = 0
         while(len(self.buffer) < self.episode_length):
             print(f"warming up at step {i+1}", end='\r')
-            self.agent.play_step(self.net, 0, self.device)
+            self.agent.play_step(self.net, 1, self.device)
             i += 1
     
     def run_n_episodes(self, env, n_episodes: int = 1, epsilon: float = 1.0) -> List[int]:
@@ -127,8 +129,7 @@ class RainbowLightning(pl.LightningModule):
             durations.clear()
             
             while not done:
-                action = self.agent.select_action(self.net, self.device)
-                reward, done = self.agent.step(action)
+                reward, done = self.agent.play_step(self.net, 0, self.device)
                 episode_reward += reward
                 frame = self.env.render('rgb_array')
                 frame = np.array(frame)
@@ -157,7 +158,11 @@ class RainbowLightning(pl.LightningModule):
         return self.net(state).float()
     
     def _compute_dqn_loss(self, exps, gamma: float):
-        state, action, reward, next_state, done = exps
+        state, action, reward, done, next_state = exps
+        state = state.float()
+        done = done.unsqueeze(-1).float()
+        reward = reward.unsqueeze(-1).float()
+        next_state = next_state.float()
         
         # Categorical DQN algorithm
         delta_z = float(self.v_max - self.v_min) / (self.atom_size - 1)
@@ -198,7 +203,6 @@ class RainbowLightning(pl.LightningModule):
     
     def loss_fn(self, exps, weights, n_exps):
         elementwise_loss = self._compute_dqn_loss(exps, self.gamma)
-        
         loss = torch.mean(elementwise_loss * weights, dtype=torch.float32)
         if self.use_n_step:
             gamma = self.gamma ** self.n_step
@@ -214,25 +218,20 @@ class RainbowLightning(pl.LightningModule):
     
     def training_step(self, batch: Tuple[Tensor, Tensor], nb_batch) -> OrderedDict:
         device = self.get_device(batch)
-        action = self.agent.select_action(self.net, device)
-        ic(action)
-        reward, done = self.agent.step(action)
-        ic(reward, done)
-        ic(np.array(self.agent.state).shape)
+        reward, done = self.agent.play_step(self.net, 0, device)
         self.episode_reward += reward
         if self.use_n_step:
-            exps, weights, indices, n_exps = batch
+            exps, indices, weights, n_exps = batch
         else:
-            exps, weights, indices = batch
+            exps, indices, weights  = batch
             n_exps = None
-        # ic(weights, indices)
+        
         loss, elementwise_loss = self.loss_fn(exps, weights, n_exps)
-        ic(loss)
         if self.trainer.strategy in {"ddp", "dp"}:
             loss = loss.unsqueeze(0)
         
         # Soft update of target network
-        if self.global_step % self.target_update == 0:
+        if self.global_step % (25 * self.target_update) == 0: # 10 step = 250 global steps
             self.target_net.load_state_dict(self.net.state_dict())
         
         if done:
@@ -267,7 +266,8 @@ class RainbowLightning(pl.LightningModule):
         
         loss_for_prior = elementwise_loss.detach().cpu().numpy()
         new_priorities = loss_for_prior + self.prior_eps
-        self.memory.update_priorities(indices, new_priorities)
+        indices = indices.int().detach().cpu().numpy()
+        self.buffer.update_priorities(indices, new_priorities)
         
         return OrderedDict({"loss": loss, "log": log})
     
@@ -303,8 +303,7 @@ class RainbowLightning(pl.LightningModule):
             "optimizer": optimizer,
             "lr_scheduler": {
                 "scheduler": CosineAnnealingWarmRestarts(optimizer=optimizer,
-                                                         T_0=400000,
-                                                         T_mult=2,
+                                                         T_0=self.target_update * 25,
                                                          eta_min=self.min_lr
                                                          )
             }
@@ -317,6 +316,7 @@ class RainbowLightning(pl.LightningModule):
             dataset=dataset,
             batch_size=self.batch_size,
             num_workers=6,
+            drop_last=True
         )
         return dataloader
 

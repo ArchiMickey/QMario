@@ -1,7 +1,7 @@
 import torch
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
-from rainbow_core.rainbow import RainbowLightning
+from core.rainbow import RainbowLightning
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 from datetime import datetime
 
@@ -17,12 +17,12 @@ checkpoint_callback = ModelCheckpoint(
 
 Model = RainbowLightning(
     batch_size=128,
-    lr=6.25e-5,
-    min_lr=1e-8,
+    lr=3.5e-4,
+    min_lr=1e-7,
     gamma=0.9,
     target_update=10000,
-    memory_size=25000,
-    episode_length=2500,
+    memory_size=100000,
+    episode_length=2250,
     v_min=-50,
     v_max=50,
     atom_size=51,
