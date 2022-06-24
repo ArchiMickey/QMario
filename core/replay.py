@@ -10,7 +10,9 @@ Experience = namedtuple("Experience",
                         field_names=["state", "action", "reward", "done", "new_state"],
                         )
 
-class ReplayBuffer:
+class _ReplayBuffer:
+    """This version of replay buffer is deprecated. The new version is TODO.
+    """
     def __init__(self, capacity: int):
         self.buffer = deque(maxlen=capacity)
     
@@ -33,9 +35,8 @@ class ReplayBuffer:
             np.array(next_states),
         )
 
-class MultiStepBuffer(ReplayBuffer):
-    """
-    N step Replay Buffer.
+class _MultiStepBuffer(_ReplayBuffer):
+    """This version of N Step replay buffer is deprecated. The new version is TODO.
     """
     def __init__(self, capacity: int, n_steps: int = 1, gamma: float = 0.99):
         super().__init__(capacity)
@@ -138,7 +139,9 @@ class MultiStepBuffer(ReplayBuffer):
             np.array(next_states),
         )
 
-class PERBuffer(ReplayBuffer):
+class _PERBuffer(_ReplayBuffer):
+    """This version of PER replay buffer is deprecated. The new version is TODO.
+    """
     def __init__(self, buffer_size, prob_alpha=0.6, beta_start=0.4, beta_frames=50000):
         super().__init__(capacity=buffer_size)
         self.beta_start = beta_start
@@ -254,7 +257,7 @@ class PER_RLDataset(IterableDataset):
         sample_size: number of experiences to sample at a time
     """
 
-    def __init__(self, buffer: ReplayBuffer, sample_size: int = 200) -> None:
+    def __init__(self, buffer: _ReplayBuffer, sample_size: int = 200) -> None:
         self.buffer = buffer
         self.sample_size = sample_size
 
