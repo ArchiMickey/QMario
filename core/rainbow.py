@@ -6,11 +6,13 @@ from typing import Dict, OrderedDict, List, Tuple
 from torch.optim import Adam, Optimizer
 from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from torch.utils.data import DataLoader
+from pl_bolts.datamodules.experience_source import ExperienceSourceDataset
 
-from .replay import MultiStepBuffer, PERBuffer, Rainbow_RLDataset
+from .replay import MultiStepBuffer, PrioritisedReplayBuffer, Rainbow_RLDataset
 from .mario_env import make_mario
 from .network import RainbowDQN
 from .agent import Agent
+from .log import log_video
 
 from torch import nn
 import cv2
@@ -31,13 +33,15 @@ class RainbowLightning(pl.LightningModule):
         memory_size: int = 10000,
         warm_start_size: int = 1000,
         episode_length: int = 1024,
+        # NoisyNet parameters
+        sigma: float = 0.5,
         # PER parameters
         alpha: float = 0.2,
         beta: float = 0.6,
         prior_eps: float = 1e-6,
         # Categorical DQN parameters
-        v_min: float = 0.0,
-        v_max: float = 200,
+        v_min: float = -50,
+        v_max: float = 50,
         atom_size: int = 51,
         # N-step Learning
         n_step: int = 1,
@@ -56,6 +60,7 @@ class RainbowLightning(pl.LightningModule):
         self.memory_size = memory_size
         self.warm_start_size = warm_start_size
         self.episode_length = episode_length
+        self.sigma = sigma
         self.alpha = alpha
         self.beta = beta
         self.prior_eps = prior_eps
@@ -69,12 +74,14 @@ class RainbowLightning(pl.LightningModule):
         
         self.save_hyperparameters()
         
+        assert self.warm_start_size >= self.episode_length, "warm_start_size must be greater than episode_length"
+        
         self.env = make_mario(env_name=env)
         self.test_env = make_mario(env_name=env)
         self.obs_dim = self.env.observation_space.shape
         self.action_dim = self.env.action_space.n
         
-        self.buffer = PERBuffer(memory_size, prob_alpha=alpha, beta_start=beta)
+        self.buffer = PrioritisedReplayBuffer(memory_size, alpha=alpha, beta_start=beta)
         
         self.use_n_step = True if self.n_step > 1 else False
         if self.use_n_step:
@@ -86,8 +93,8 @@ class RainbowLightning(pl.LightningModule):
             self.v_min, self.v_max, self.atom_size
         ).cuda()
         
-        self.net = RainbowDQN(self.obs_dim, self.action_dim, self.atom_size, self.support)
-        self.target_net = RainbowDQN(self.obs_dim, self.action_dim, self.atom_size, self.support)
+        self.net = RainbowDQN(self.obs_dim, self.action_dim, self.atom_size, self.support, self.sigma)
+        self.target_net = RainbowDQN(self.obs_dim, self.action_dim, self.atom_size, self.support, self.sigma)
         self.target_net.load_state_dict(self.net.state_dict())
         self.target_net.eval()
         
@@ -104,9 +111,9 @@ class RainbowLightning(pl.LightningModule):
             steps: the number of steps for populating.
         """
         i = 0
-        while(len(self.buffer) < self.episode_length):
+        while(len(self.buffer) < self.warm_start_size):
             print(f"warming up at step {i+1}", end='\r')
-            self.agent.play_step(self.net, 1, self.device)
+            self.agent.play_step(self.net, 0, self.device)
             i += 1
     
     def run_n_episodes(self, env, n_episodes: int = 1, epsilon: float = 1.0) -> List[int]:
@@ -143,16 +150,13 @@ class RainbowLightning(pl.LightningModule):
                 # cv2.waitKey(20)
 
             if self.save_video:
-                clip = ImageSequenceClip(frames, durations=durations)
-                clip.write_videofile(f"train_video/mario_episode{self.total_episodes}_reward{episode_reward}.mp4",
-                                     fps=self.fps,
-                                     )
-                wandb.log({f"gameplay": wandb.Video(f"train_video/mario_episode{self.total_episodes}_reward{episode_reward}.mp4",
-                                                    caption=f"reward: {episode_reward}")})
+                log_video(frames, durations, self.total_episodes, episode_reward, self.fps)
             self.test_env.reset()
             total_rewards.append(episode_reward)
 
         return total_rewards
+    
+    # TODO: implement train_batch
     
     def forward(self, state: Tensor):
         return self.net(state).float()

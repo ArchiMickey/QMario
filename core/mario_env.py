@@ -7,8 +7,16 @@ from gym_super_mario_bros.actions import RIGHT_ONLY, SIMPLE_MOVEMENT
 from gym.wrappers import GrayScaleObservation, TransformObservation, FrameStack, ResizeObservation, RecordVideo
 from pl_bolts.models.rl.common.gym_wrappers import MaxAndSkipEnv
 
+from icecream import ic
 
 def make_mario(env_name: str):
+    # ['NOOP'],
+    # ['right'],
+    # ['right', 'A'],
+    # ['right', 'B'],
+    # ['right', 'A', 'B'],
+    # ['A'],
+    # ['left']
     env = gym_super_mario_bros.make(env_name)
     env = JoypadSpace(env, SIMPLE_MOVEMENT)
     env = MaxAndSkipEnv(env, skip=4)

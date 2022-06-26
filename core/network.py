@@ -6,6 +6,8 @@ import torch.nn.functional as F
 
 from .layer import NoisyLinear
 
+from icecream import ic
+
 class CNN(nn.Module):
     """A simple CNN network.
     Args:
@@ -173,7 +175,8 @@ class RainbowDQN(nn.Module):
         in_dim: int, 
         out_dim: int, 
         atom_size: int, 
-        support: torch.Tensor
+        support: torch.Tensor,
+        sigma: float = 0.5,
     ):
         """Initialization."""
         super(RainbowDQN, self).__init__()
@@ -184,31 +187,34 @@ class RainbowDQN(nn.Module):
 
         # set common feature layer
         self.conv = nn.Sequential(
-            nn.Conv2d(in_channels=in_dim[0], out_channels=64, kernel_size=9, stride=1),
+            nn.Conv2d(in_channels=in_dim[0], out_channels=256, kernel_size=8, stride=4),
             nn.ReLU(),
-            nn.Conv2d(in_channels=64, out_channels=128, kernel_size=5, stride=2),
+            nn.Conv2d(in_channels=256, out_channels=512, kernel_size=4, stride=2),
             nn.ReLU(),
-            nn.AvgPool2d(3, 1),
-            nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=2),
-            nn.ReLU(),
-            nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1),
-            nn.ReLU(),
-            nn.AvgPool2d(3, 1),
             nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, stride=1),
             nn.ReLU(),
-            nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=3, stride=1),
-            nn.ReLU(),
-            nn.AdaptiveAvgPool2d(1),
             nn.Flatten(),
         )
         
+        conv_out_size = self._get_conv_out(in_dim)
+        
         # set advantage layer
-        self.advantage_hidden_layer = NoisyLinear(1024, 4096)
-        self.advantage_layer = NoisyLinear(4096, out_dim * atom_size)
+        self.advantage_hidden_layer = NoisyLinear(conv_out_size, 2048, sigma)
+        self.advantage_layer = NoisyLinear(2048, out_dim * atom_size, sigma)
 
         # set value layer
-        self.value_hidden_layer = NoisyLinear(1024, 4096)
-        self.value_layer = NoisyLinear(4096, atom_size)
+        self.value_hidden_layer = NoisyLinear(conv_out_size, 2048)
+        self.value_layer = NoisyLinear(2048, atom_size)
+    
+    def _get_conv_out(self, shape) -> int:
+        """Calculates the output size of the last conv layer.
+        Args:
+            shape: input dimensions
+        Returns:
+            size of the conv output
+        """
+        conv_out = self.conv(torch.zeros(1, *shape))
+        return int(np.prod(conv_out.size()))
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward method implementation."""
@@ -240,3 +246,20 @@ class RainbowDQN(nn.Module):
         self.advantage_layer.reset_noise()
         self.value_hidden_layer.reset_noise()
         self.value_layer.reset_noise()
+
+# nn.Conv2d(in_channels=in_dim[0], out_channels=64, kernel_size=9, stride=1),
+#             nn.ReLU(),
+#             nn.Conv2d(in_channels=64, out_channels=128, kernel_size=5, stride=2),
+#             nn.ReLU(),
+#             nn.AvgPool2d(3, 1),
+#             nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=2),
+#             nn.ReLU(),
+#             nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1),
+#             nn.ReLU(),
+#             nn.AvgPool2d(3, 1),
+#             nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, stride=1),
+#             nn.ReLU(),
+#             nn.Conv2d(in_channels=512, out_channels=1024, kernel_size=3, stride=1),
+#             nn.ReLU(),
+#             nn.AdaptiveAvgPool2d(1),
+#             nn.Flatten(),

@@ -17,20 +17,24 @@ checkpoint_callback = ModelCheckpoint(
 
 Model = RainbowLightning(
     batch_size=128,
-    lr=3.5e-4,
+    lr=6.25e-5,
     min_lr=1e-7,
     gamma=0.9,
     target_update=10000,
-    memory_size=100000,
+    warm_start_size=2250,
+    memory_size=15000,
     episode_length=2250,
-    v_min=-50,
-    v_max=50,
+    sigma=0.5,
+    v_min=-15,
+    v_max=15,
     atom_size=51,
     n_step=3,
     save_video=True,
     fps=24,
     video_rate=20,
 )
+
+
 
 now_dt = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
 
@@ -43,7 +47,6 @@ trainer = pl.Trainer(
     max_epochs=400000,
     logger=wandb_logger,
     gradient_clip_val= 10.0,
-    # val_check_interval=50,
     auto_lr_find=True,
     callbacks=[checkpoint_callback, LearningRateMonitor(logging_interval='step')],
 )

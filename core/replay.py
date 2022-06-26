@@ -1,8 +1,10 @@
 from collections import namedtuple
 from collections import deque
+import random
 import numpy as np
 from torch.utils.data.dataset import IterableDataset
 from typing import Iterator, List, Tuple
+from .tree import MinSegmentTree, SumSegmentTree
 
 from icecream import ic
 
@@ -10,7 +12,9 @@ Experience = namedtuple("Experience",
                         field_names=["state", "action", "reward", "done", "new_state"],
                         )
 
-class _ReplayBuffer:
+
+
+class ReplayBuffer:
     """This version of replay buffer is deprecated. The new version is TODO.
     """
     def __init__(self, capacity: int):
@@ -35,7 +39,87 @@ class _ReplayBuffer:
             np.array(next_states),
         )
 
-class _MultiStepBuffer(_ReplayBuffer):
+class PrioritisedReplayBuffer(ReplayBuffer):
+    def __init__(self, buffer_size: int, alpha: float = 0.6, beta_start = 0.4,
+                 beta_frames: int = 50000):
+        super().__init__(buffer_size)
+        self.buffer_size = buffer_size
+        self.alpha = alpha
+        self.beta_start = beta_start
+        self.beta = beta_start
+        self.beta_frames = beta_frames
+        self.max_priority, self.tree_ptr = 1.0, 0
+        
+        tree_capacity = 1
+        while tree_capacity < self.buffer_size:
+            tree_capacity *= 2
+        
+        self.sum_tree = SumSegmentTree(tree_capacity)
+        self.min_tree = MinSegmentTree(tree_capacity)
+    
+    def append(self, experience: Experience):
+        super().append(experience)
+        self.sum_tree[self.tree_ptr] = self.max_priority ** self.alpha
+        self.min_tree[self.tree_ptr] = self.max_priority ** self.alpha
+        self.tree_ptr = (self.tree_ptr + 1) % self.buffer_size
+    
+    def sample(self, batch_size: int, beta: float = 0.4) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        assert len(self.buffer) >= batch_size
+        assert beta > 0
+        
+        idxs = self._sample_proportional(batch_size)
+        states, actions, rewards, dones, next_states = zip(*(self.buffer[idx] for idx in idxs))
+        weights = np.array([self._calculate_weight(idx, beta) for idx in idxs])
+        return (
+            np.array(states),
+            np.array(actions),
+            np.array(rewards, dtype=np.float32),
+            np.array(dones, dtype=bool),
+            np.array(next_states),
+        ), idxs, weights
+        
+    
+    def update_priorities(self, indices: List[int], priorities: np.ndarray):
+        """Update priorities of sampled transitions."""
+        assert len(indices) == len(priorities)
+
+        for idx, priority in zip(indices, priorities):
+            assert priority > 0
+            assert 0 <= idx < len(self)
+
+            self.sum_tree[idx] = priority ** self.alpha
+            self.min_tree[idx] = priority ** self.alpha
+
+            self.max_priority = max(self.max_priority, priority)
+            
+    def _sample_proportional(self, batch_size: int) -> List[int]:
+        """Sample indices based on proportions."""
+        indices = []
+        p_total = self.sum_tree.sum(0, len(self) - 1)
+        segment = p_total / batch_size
+        
+        for i in range(batch_size):
+            a = segment * i
+            b = segment * (i + 1)
+            upperbound = random.uniform(a, b)
+            idx = self.sum_tree.retrieve(upperbound)
+            indices.append(idx)
+            
+        return indices
+    
+    def _calculate_weight(self, idx: int, beta: float):
+        """Calculate the weight of the experience at idx."""
+        # get max weight
+        p_min = self.min_tree.min() / self.sum_tree.sum()
+        max_weight = (p_min * len(self)) ** (-beta)
+        
+        # calculate weights
+        p_sample = self.sum_tree[idx] / self.sum_tree.sum()
+        weight = (p_sample * len(self)) ** (-beta)
+        weight = weight / max_weight
+        
+        return weight
+class MultiStepBuffer(ReplayBuffer):
     """This version of N Step replay buffer is deprecated. The new version is TODO.
     """
     def __init__(self, capacity: int, n_steps: int = 1, gamma: float = 0.99):
@@ -44,6 +128,18 @@ class _MultiStepBuffer(_ReplayBuffer):
         self.gamma = gamma
         self.history = deque(maxlen=self.n_steps)
         self.exp_history_queue = deque()
+    
+    def update_beta(self, step) -> float:
+        """Update the beta value which accounts for the bias in the PER.
+        Args:
+            step: current global step
+        Returns:
+            beta value for this indexed experience
+        """
+        beta_val = self.beta_start + step * (1.0 - self.beta_start) / self.beta_frames
+        self.beta = min(1.0, beta_val)
+
+        return self.beta
     
     def append(self, exp: Experience) -> None:
         """Add experience to the buffer.
@@ -139,7 +235,7 @@ class _MultiStepBuffer(_ReplayBuffer):
             np.array(next_states),
         )
 
-class _PERBuffer(_ReplayBuffer):
+class PERBuffer(ReplayBuffer):
     """This version of PER replay buffer is deprecated. The new version is TODO.
     """
     def __init__(self, buffer_size, prob_alpha=0.6, beta_start=0.4, beta_frames=50000):
@@ -257,7 +353,7 @@ class PER_RLDataset(IterableDataset):
         sample_size: number of experiences to sample at a time
     """
 
-    def __init__(self, buffer: _ReplayBuffer, sample_size: int = 200) -> None:
+    def __init__(self, buffer: ReplayBuffer, sample_size: int = 200) -> None:
         self.buffer = buffer
         self.sample_size = sample_size
 
@@ -275,7 +371,7 @@ class Rainbow_RLDataset(IterableDataset):
         sample_size: number of experiences to sample at a time
     """
 
-    def __init__(self, buffer: PERBuffer, sample_size: int = 200, buffer_n: MultiStepBuffer = None) -> None:
+    def __init__(self, buffer: PrioritisedReplayBuffer, sample_size: int = 200, buffer_n: MultiStepBuffer = None) -> None:
         self.buffer = buffer
         self.buffer_n = buffer_n
         self.sample_size = sample_size
