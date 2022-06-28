@@ -6,7 +6,6 @@ from typing import Dict, OrderedDict, List, Tuple
 from torch.optim import Adam, Optimizer
 from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from torch.utils.data import DataLoader
-from pl_bolts.datamodules.experience_source import ExperienceSourceDataset
 
 from .replay import MultiStepBuffer, PrioritisedReplayBuffer, Rainbow_RLDataset
 from .mario_env import make_mario
@@ -32,7 +31,10 @@ class RainbowLightning(pl.LightningModule):
         target_update: int = 10000,
         memory_size: int = 10000,
         warm_start_size: int = 1000,
-        episode_length: int = 1024,
+        episode_length: int = 1000,
+        eps_start: float = 1,
+        eps_decay: float = 0.9999,
+        eps_end = 0.02,
         # NoisyNet parameters
         sigma: float = 0.5,
         # PER parameters
@@ -60,6 +62,9 @@ class RainbowLightning(pl.LightningModule):
         self.memory_size = memory_size
         self.warm_start_size = warm_start_size
         self.episode_length = episode_length
+        self.eps = eps_start
+        self.eps_decay = eps_decay
+        self.eps_end = eps_end
         self.sigma = sigma
         self.alpha = alpha
         self.beta = beta
@@ -97,13 +102,17 @@ class RainbowLightning(pl.LightningModule):
         self.target_net = RainbowDQN(self.obs_dim, self.action_dim, self.atom_size, self.support, self.sigma)
         self.target_net.load_state_dict(self.net.state_dict())
         self.target_net.eval()
+        self.use_noisy = False
         
         self.is_test = False
         self.agent = Agent(self.env, self.buffer, self.use_n_step, self.buffer_n)
         self.test_agent = Agent(self.test_env, self.buffer, self.use_n_step, self.buffer_n)
         
-        self.episode_reward: float = 0
+        self.episode_reward: int = 0
+        self.curr_reward: int = 0
         self.total_episodes: int = 0
+        self.last_test_reward: int = 0
+        self.last_episode_reward: int = 0
             
     def populate(self):
         """Carries out some episodes of the environment to fill the replay buffer before training.
@@ -111,10 +120,9 @@ class RainbowLightning(pl.LightningModule):
             steps: the number of steps for populating.
         """
         i = 0
-        while(len(self.buffer) < self.warm_start_size):
-            print(f"warming up at step {i+1}", end='\r')
+        while(len(self.buffer) < self.batch_size):
             self.agent.play_step(self.net, 0, self.device)
-            i += 1
+        self.agent.reset()
     
     def run_n_episodes(self, env, n_episodes: int = 1, epsilon: float = 1.0) -> List[int]:
         """Carries out N episodes of the environment with the current agent.
@@ -143,11 +151,6 @@ class RainbowLightning(pl.LightningModule):
                 if self.save_video:
                     frames.append(frame)
                     durations.append(1/self.fps)
-                # frame = cv2.resize(frame, (512, 480))
-                # frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                
-                # cv2.imshow("QMario", frame)
-                # cv2.waitKey(20)
 
             if self.save_video:
                 log_video(frames, durations, self.total_episodes, episode_reward, self.fps)
@@ -155,9 +158,7 @@ class RainbowLightning(pl.LightningModule):
             total_rewards.append(episode_reward)
 
         return total_rewards
-    
-    # TODO: implement train_batch
-    
+        
     def forward(self, state: Tensor):
         return self.net(state).float()
     
@@ -207,23 +208,31 @@ class RainbowLightning(pl.LightningModule):
     
     def loss_fn(self, exps, weights, n_exps):
         elementwise_loss = self._compute_dqn_loss(exps, self.gamma)
-        loss = torch.mean(elementwise_loss * weights, dtype=torch.float32)
         if self.use_n_step:
             gamma = self.gamma ** self.n_step
             elementwise_loss_n_loss = self._compute_dqn_loss(n_exps, gamma)
-            elementwise_loss = elementwise_loss + elementwise_loss_n_loss
-            loss = torch.mean(elementwise_loss * weights, dtype=torch.float32)
+            loss = torch.mean(elementwise_loss_n_loss * weights, dtype=torch.float32)
+            return loss, elementwise_loss_n_loss
+        loss = torch.mean(elementwise_loss * weights, dtype=torch.float32)
         return loss, elementwise_loss
     
     def on_train_start(self) -> None:
         self.populate()
-        ic(self)
         return super().on_train_start()
     
     def training_step(self, batch: Tuple[Tensor, Tensor], nb_batch) -> OrderedDict:
-        device = self.get_device(batch)
-        reward, done = self.agent.play_step(self.net, 0, device)
-        self.episode_reward += reward
+        # self.log("epsilon", self.eps, prog_bar=True)
+        self.log("lr", self.lr, prog_bar=True)
+        # if self.use_noisy:
+        #     reward, done = self.agent.play_step(self.net, 0, self.device)
+        # else:
+        #     reward, done = self.agent.play_step(self.net, self.eps, self.device)
+        #     self.eps = max(self.eps_end, self.eps_decay * self.eps)
+        #     if self.eps == self.eps_end:
+        #         self.use_noisy = True
+        reward, done = self.agent.play_step(self.net, 0, self.device)  
+        self.curr_reward += reward
+        self.log("curr_reward", self.curr_reward, prog_bar=True)
         if self.use_n_step:
             exps, indices, weights, n_exps = batch
         else:
@@ -235,35 +244,26 @@ class RainbowLightning(pl.LightningModule):
             loss = loss.unsqueeze(0)
         
         # Soft update of target network
-        if self.global_step % (25 * self.target_update) == 0: # 10 step = 250 global steps
+        if self.global_step % self.target_update == 0: # 10 step = 250 global steps
             self.target_net.load_state_dict(self.net.state_dict())
         
         if done:
-            self.log_dict(
-            {
-                "episode_reward": self.episode_reward,
-                "total_episodes": self.total_episodes,
-            }
-            )
+            self.total_episodes += 1
             if self.total_episodes % self.video_rate == 0:
                 print("Testing...")
                 test_rewards = self.run_n_episodes(self.test_env, 1, 0)
-                avg_test_reward = sum(test_rewards) / len(test_rewards)
-                self.log("avg_test_reward", avg_test_reward)
-            self.total_episodes += 1
-            self.episode_reward = 0
-            
-        log = {
-            "total_reward": torch.tensor(self.episode_reward).to(device),
-            "reward": torch.tensor(reward).to(device),
-            "train_loss": loss,
-        }
-
+                self.last_test_reward = sum(test_rewards) / len(test_rewards)
+                self.log("last_test_reward", self.last_test_reward, on_epoch=True)
+            self.episode_reward = self.curr_reward
+            self.log("episode_reward", self.episode_reward, on_epoch=True)
+            self.curr_reward = 0
+        self.log("curr_reward", self.curr_reward, prog_bar=True)
+        self.log("total_episodes", self.total_episodes, prog_bar=True)
         self.log_dict(
             {
                 "loss": loss,
                 "step_reward": reward,
-            }
+            },
         )
         
         self.lr_schedulers().step()
@@ -273,7 +273,7 @@ class RainbowLightning(pl.LightningModule):
         indices = indices.int().detach().cpu().numpy()
         self.buffer.update_priorities(indices, new_priorities)
         
-        return OrderedDict({"loss": loss, "log": log})
+        return loss
     
     def on_train_batch_end(self, outputs, batch, batch_idx: int, unused: int = 0) -> None:
         self.net.reset_noise()
@@ -289,8 +289,8 @@ class RainbowLightning(pl.LightningModule):
         """Log the avg of the test results."""
         rewards = [x["test_reward"] for x in outputs]
         avg_reward = sum(rewards) / len(rewards)
-        self.log("avg_test_reward", avg_reward)
-        return {"avg_test_reward": avg_reward}
+        self.log("self.last_test_reward", avg_reward)
+        return {"self.last_test_reward": avg_reward}
     
     def configure_gradient_clipping(
         self, optimizer, optimizer_idx, gradient_clip_val, gradient_clip_algorithm
@@ -307,7 +307,7 @@ class RainbowLightning(pl.LightningModule):
             "optimizer": optimizer,
             "lr_scheduler": {
                 "scheduler": CosineAnnealingWarmRestarts(optimizer=optimizer,
-                                                         T_0=self.target_update * 25,
+                                                         T_0=self.target_update,
                                                          eta_min=self.min_lr
                                                          )
             }
@@ -315,7 +315,7 @@ class RainbowLightning(pl.LightningModule):
 
     def _dataloader(self) -> DataLoader:
         """Initialize the Replay Buffer dataset used for retrieving experiences."""
-        dataset = Rainbow_RLDataset(self.buffer, self.episode_length, self.buffer_n)
+        dataset = Rainbow_RLDataset(self.buffer, self.batch_size, self.buffer_n)
         dataloader = DataLoader(
             dataset=dataset,
             batch_size=self.batch_size,

@@ -168,18 +168,17 @@ class NoisyDuelingCNN(nn.Module):
         """
         conv_out = self.conv(input_x.squeeze(-1).float())
         return self.head_adv(conv_out), self.head_val(conv_out)
-    
-class RainbowDQN(nn.Module):
+
+class DistD3QN(nn.Module):
     def __init__(
         self, 
         in_dim: int, 
         out_dim: int, 
         atom_size: int, 
         support: torch.Tensor,
-        sigma: float = 0.5,
     ):
         """Initialization."""
-        super(RainbowDQN, self).__init__()
+        super(DistD3QN, self).__init__()
         
         self.support = support
         self.out_dim = out_dim
@@ -199,12 +198,83 @@ class RainbowDQN(nn.Module):
         conv_out_size = self._get_conv_out(in_dim)
         
         # set advantage layer
-        self.advantage_hidden_layer = NoisyLinear(conv_out_size, 2048, sigma)
-        self.advantage_layer = NoisyLinear(2048, out_dim * atom_size, sigma)
+        self.advantage_hidden_layer = nn.Linear(conv_out_size, 2048)
+        self.advantage_layer = nn.Linear(2048, out_dim * atom_size)
 
         # set value layer
-        self.value_hidden_layer = NoisyLinear(conv_out_size, 2048)
-        self.value_layer = NoisyLinear(2048, atom_size)
+        self.value_hidden_layer = nn.Linear(conv_out_size, 2048)
+        self.value_layer = nn.Linear(2048, atom_size)
+    
+    def _get_conv_out(self, shape) -> int:
+        """Calculates the output size of the last conv layer.
+        Args:
+            shape: input dimensions
+        Returns:
+            size of the conv output
+        """
+        conv_out = self.conv(torch.zeros(1, *shape))
+        return int(np.prod(conv_out.size()))
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward method implementation."""
+        dist = self.dist(x)
+        q = torch.sum(dist * self.support, dim=2)
+        
+        return q
+    
+    def dist(self, x: torch.Tensor) -> torch.Tensor:
+        """Get distribution for atoms."""
+        conv_out = self.conv(x.squeeze(-1))
+        adv_hid = F.relu(self.advantage_hidden_layer(conv_out))
+        val_hid = F.relu(self.value_hidden_layer(conv_out))
+        
+        advantage = self.advantage_layer(adv_hid).view(
+            -1, self.out_dim, self.atom_size
+        )
+        value = self.value_layer(val_hid).view(-1, 1, self.atom_size)
+        q_atoms = value + advantage - advantage.mean(dim=1, keepdim=True)
+        
+        dist = F.softmax(q_atoms, dim=-1)
+        dist = dist.clamp(min=1e-3)  # for avoiding nans
+        
+        return dist
+
+class RainbowDQN(nn.Module):
+    def __init__(
+        self, 
+        in_dim: int, 
+        out_dim: int, 
+        atom_size: int, 
+        support: torch.Tensor,
+        sigma: float = 0.5,
+    ):
+        """Initialization."""
+        super(RainbowDQN, self).__init__()
+        
+        self.support = support
+        self.out_dim = out_dim
+        self.atom_size = atom_size
+
+        # set common feature layer
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_channels=in_dim[0], out_channels=32, kernel_size=8, stride=4),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1),
+            nn.ReLU(),
+            nn.Flatten(),
+        )
+        
+        conv_out_size = self._get_conv_out(in_dim)
+        
+        # set advantage layer
+        self.advantage_hidden_layer = NoisyLinear(conv_out_size, 512, sigma)
+        self.advantage_layer = NoisyLinear(512, out_dim * atom_size, sigma)
+
+        # set value layer
+        self.value_hidden_layer = NoisyLinear(conv_out_size, 512, sigma)
+        self.value_layer = NoisyLinear(512, atom_size, sigma)
     
     def _get_conv_out(self, shape) -> int:
         """Calculates the output size of the last conv layer.

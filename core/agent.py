@@ -38,11 +38,11 @@ class Agent:
             action = action.detach().cpu().numpy()
             action = int(action.item())
         
-        return action, q_values
+        return action
     
     @torch.no_grad()
     def play_step(self, net: nn.Module, epsilon: float = 0.0, device: str = "cpu") -> Tuple[float, bool]:
-        action, q_values = self.get_action(net, epsilon, device)
+        action = self.get_action(net, epsilon, device)
         new_state, reward, done, _ = self.env.step(action)
         exp = Experience(self.state, action, reward, done, new_state)
         if self.use_n_step:

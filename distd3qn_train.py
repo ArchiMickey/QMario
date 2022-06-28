@@ -1,7 +1,7 @@
 import torch
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
-from core.rainbow import RainbowLightning
+from core.distd3qn import DistD3QNLightning
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor, RichProgressBar
 from datetime import datetime
 
@@ -14,19 +14,21 @@ checkpoint_callback = ModelCheckpoint(
     every_n_train_steps=1000,
 )
 
-# 1 training step = 2.5 global step
-Model = RainbowLightning(
+Model = DistD3QNLightning(
     batch_size=512,
     lr=6.25e-5,
-    min_lr=6.25e-5,
+    min_lr=1e-6,
     gamma=0.9,
-    target_update=25000,
+    target_update=10000,
     memory_size=100000,
-    sigma=0.1,
-    alpha=0.3,
+    warm_start_size=10000,
+    eps_start=1,
+    eps_decay=0.9999,
+    min_eps=0.02,
+    alpha=0.5,
     beta=0.4,
-    v_min=-10,
-    v_max=10,
+    v_min=-15,
+    v_max=15,
     atom_size=51,
     n_step=3,
     save_video=True,
@@ -49,7 +51,7 @@ trainer = pl.Trainer(
     log_every_n_steps=5,
     gradient_clip_val= 10.0,
     auto_lr_find=True,
-    callbacks=[checkpoint_callback, LearningRateMonitor(logging_interval='step')],
+    callbacks=[checkpoint_callback, LearningRateMonitor(logging_interval='step'), RichProgressBar()],
 )
 
 # trainer.tune(Model)

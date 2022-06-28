@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 
 from .replay import MultiStepBuffer, PrioritisedReplayBuffer, Rainbow_RLDataset
 from .mario_env import make_mario
-from .network import CategoricalD3QN
+from .network import DistD3QN
 from .agent import Agent
 from .log import log_video
 
@@ -20,7 +20,7 @@ import wandb
 
 from icecream import ic
 
-class CategoricalD3QNLightning(pl.LightningModule):
+class DistD3QNLightning(pl.LightningModule):
     def __init__(
         self,
         batch_size: int = 32,
@@ -33,7 +33,9 @@ class CategoricalD3QNLightning(pl.LightningModule):
         warm_start_size: int = 1000,
         episode_length: int = 1000,
         # NoisyNet parameters
-        sigma: float = 0.5,
+        eps_start: float = 1,
+        eps_decay: float = 0.9999,
+        min_eps: float = 0.02,
         # PER parameters
         alpha: float = 0.2,
         beta: float = 0.6,
@@ -59,7 +61,9 @@ class CategoricalD3QNLightning(pl.LightningModule):
         self.memory_size = memory_size
         self.warm_start_size = warm_start_size
         self.episode_length = episode_length
-        self.sigma = sigma
+        self.eps = eps_start
+        self.eps_decay = eps_decay
+        self.min_eps = min_eps
         self.alpha = alpha
         self.beta = beta
         self.prior_eps = prior_eps
@@ -92,8 +96,8 @@ class CategoricalD3QNLightning(pl.LightningModule):
             self.v_min, self.v_max, self.atom_size
         ).cuda()
         
-        self.net = CategoricalD3QN(self.obs_dim, self.action_dim, self.atom_size, self.support, self.sigma)
-        self.target_net = CategoricalD3QN(self.obs_dim, self.action_dim, self.atom_size, self.support, self.sigma)
+        self.net = DistD3QN(self.obs_dim, self.action_dim, self.atom_size, self.support)
+        self.target_net = DistD3QN(self.obs_dim, self.action_dim, self.atom_size, self.support)
         self.target_net.load_state_dict(self.net.state_dict())
         self.target_net.eval()
         
@@ -113,10 +117,11 @@ class CategoricalD3QNLightning(pl.LightningModule):
             steps: the number of steps for populating.
         """
         i = 0
-        while(len(self.buffer) < self.batch_size):
+        while(len(self.buffer) < self.warm_start_size):
             # print(f"warming up at step {i+1}", end='\r')
-            self.agent.play_step(self.net, 0, self.device)
+            self.agent.play_step(self.net, 1, self.device)
             i += 1
+        self.agent.reset()
     
     def run_n_episodes(self, env, n_episodes: int = 1, epsilon: float = 1.0) -> List[int]:
         """Carries out N episodes of the environment with the current agent.
@@ -205,8 +210,7 @@ class CategoricalD3QNLightning(pl.LightningModule):
         if self.use_n_step:
             gamma = self.gamma ** self.n_step
             elementwise_loss_n_loss = self._compute_dqn_loss(n_exps, gamma)
-            elementwise_loss += elementwise_loss_n_loss
-            loss = torch.mean(elementwise_loss * weights, dtype=torch.float32)
+            loss = torch.mean(elementwise_loss_n_loss * weights, dtype=torch.float32)
         else:
             loss = torch.mean(elementwise_loss * weights, dtype=torch.float32)
         return loss, elementwise_loss
@@ -217,7 +221,8 @@ class CategoricalD3QNLightning(pl.LightningModule):
     
     def training_step(self, batch: Tuple[Tensor, Tensor], nb_batch) -> OrderedDict:
         device = self.get_device(batch)
-        reward, done = self.agent.play_step(self.net, 0, device)
+        reward, done = self.agent.play_step(self.net, self.eps, device)
+        self.eps = max(self.min_eps, self.eps_decay * self.eps)
         self.curr_reward += reward
         self.log("curr_reward", self.curr_reward, prog_bar=True)
         if self.use_n_step:
@@ -262,10 +267,6 @@ class CategoricalD3QNLightning(pl.LightningModule):
         self.buffer.update_priorities(indices, new_priorities)
         
         return loss
-    
-    def on_train_batch_end(self, outputs, batch, batch_idx: int, unused: int = 0) -> None:
-        self.net.reset_noise()
-        self.target_net.reset_noise()
     
     def test_step(self, *args, **kwargs) -> Dict[str, Tensor]:
         """Evaluate the agent for 10 episodes."""
