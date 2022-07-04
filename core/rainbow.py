@@ -14,9 +14,7 @@ from .agent import Agent
 from .log import log_video
 
 from torch import nn
-import cv2
 from moviepy.editor import *
-import wandb
 
 from icecream import ic
 
@@ -78,9 +76,7 @@ class RainbowLightning(pl.LightningModule):
         self.video_rate = video_rate
         
         self.save_hyperparameters()
-        
-        assert self.warm_start_size >= self.episode_length, "warm_start_size must be greater than episode_length"
-        
+                
         self.env = make_mario(env_name=env)
         self.test_env = make_mario(env_name=env)
         self.obs_dim = self.env.observation_space.shape
@@ -138,12 +134,16 @@ class RainbowLightning(pl.LightningModule):
             self.agent.reset()
             done = False
             episode_reward = 0
+            episode_end = False
+            step = 0
             
             frames.clear()
             durations.clear()
             
-            while not done:
+            while not episode_end:
                 reward, done = self.agent.play_step(self.net, 0, self.device)
+                step += 1
+                episode_end = done or step % self.episode_length == 0
                 self.net.reset_noise() 
                 episode_reward += reward
                 frame = self.env.render(mode='rgb_array')
@@ -251,6 +251,7 @@ class RainbowLightning(pl.LightningModule):
             self.episode_reward = self.curr_reward
             self.log("episode_reward", self.episode_reward, on_epoch=True)
             self.curr_reward = 0
+            
         self.log("curr_reward", self.curr_reward, prog_bar=True)
         self.log("total_episodes", self.total_episodes, prog_bar=True)
         self.log_dict(
@@ -301,7 +302,7 @@ class RainbowLightning(pl.LightningModule):
     
     def configure_optimizers(self) -> List[Optimizer]:
         """Initialize Adam optimizer."""
-        optimizer = Adam(self.net.parameters(), lr=self.lr, eps=1.5e-4, capturable=True)
+        optimizer = Adam(self.net.parameters(), lr=self.lr, eps=1.5e-4)
         return {
             "optimizer": optimizer,
             "lr_scheduler": {
