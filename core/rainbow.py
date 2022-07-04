@@ -104,6 +104,7 @@ class RainbowLightning(pl.LightningModule):
         
         self.episode_reward: int = 0
         self.curr_reward: int = 0
+        self.curr_episode_step: int = 0
         self.total_steps: int = 0
         self.total_episodes: int = 0
         self.last_test_reward: int = 0
@@ -227,6 +228,7 @@ class RainbowLightning(pl.LightningModule):
         self.log("lr", self.lr, prog_bar=True)
         reward, done = self.agent.play_step(self.net, 0, self.device)  
         self.total_steps += 1
+        self.curr_episode_step += 1
         self.log("total_steps", self.total_steps, prog_bar=True)
         self.curr_reward += reward
         self.log("curr_reward", self.curr_reward, prog_bar=True)
@@ -244,13 +246,14 @@ class RainbowLightning(pl.LightningModule):
         if self.total_steps % self.target_update == 0: # 10 step = 250 global steps
             self.target_net.load_state_dict(self.net.state_dict())
         
-        episode_end = done or self.total_steps % self.episode_length == 0
+        episode_end = done or self.curr_episode_step % self.episode_length == 0
         
         if episode_end:
             self.total_episodes += 1
             self.episode_reward = self.curr_reward
             self.log("episode_reward", self.episode_reward, on_epoch=True)
             self.curr_reward = 0
+            self.curr_episode_step = 0
             
         self.log("curr_reward", self.curr_reward, prog_bar=True)
         self.log("total_episodes", self.total_episodes, prog_bar=True)

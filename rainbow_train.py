@@ -22,6 +22,7 @@ Model = RainbowLightning(
     gamma=0.9,
     target_update=10000,
     memory_size=100000,
+    episode_length=350,
     sigma=0.5,
     alpha=0.5,
     beta=0.4,
@@ -31,7 +32,7 @@ Model = RainbowLightning(
     n_step=3,
     save_video=True,
     fps=24,
-    video_rate=10000,
+    video_rate=5000,
 )
 
 
@@ -53,4 +54,4 @@ trainer = pl.Trainer(
 )
 
 # trainer.tune(Model)
-trainer.fit(Model)
+trainer.fit(Model, ckpt_path="model/qmario-episode_reward=195.75.ckpt")
