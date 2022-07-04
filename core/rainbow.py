@@ -153,9 +153,12 @@ class RainbowLightning(pl.LightningModule):
                     durations.append(1/self.fps)
 
             if self.save_video:
-                log_video(frames, durations, self.total_episodes, episode_reward, self.fps)
+                log_video(frames, durations, self.total_steps, episode_reward, self.fps)
             self.test_env.reset()
             total_rewards.append(episode_reward)
+
+            frames.clear()
+            durations.clear()
 
         return total_rewards
         
