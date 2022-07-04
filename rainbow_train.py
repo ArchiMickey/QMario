@@ -6,24 +6,24 @@ from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor, Ri
 from datetime import datetime
 
 checkpoint_callback = ModelCheckpoint(
-    save_top_k=1,
-    monitor="last_test_reward",
+    save_top_k=3,
+    monitor="episode_reward",
     mode="max",
     dirpath="model/",
-    filename="qmario-{epoch:02d}",
+    filename="qmario-{episode_reward}",
     every_n_train_steps=1000,
 )
 
 # 1 training step = 2.5 global step
 Model = RainbowLightning(
-    batch_size=512,
+    batch_size=32,
     lr=6.25e-5,
     min_lr=6.25e-5,
     gamma=0.9,
-    target_update=25000,
+    target_update=10000,
     memory_size=100000,
-    sigma=0.1,
-    alpha=0.3,
+    sigma=0.5,
+    alpha=0.5,
     beta=0.4,
     v_min=-10,
     v_max=10,
@@ -31,7 +31,7 @@ Model = RainbowLightning(
     n_step=3,
     save_video=True,
     fps=24,
-    video_rate=20,
+    video_rate=10000,
 )
 
 
