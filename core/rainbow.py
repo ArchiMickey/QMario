@@ -31,7 +31,7 @@ class RainbowLightning(pl.LightningModule):
         target_update: int = 10000,
         memory_size: int = 10000,
         warm_start_size: int = 1000,
-        episode_length: int = 1000,
+        episode_length: int = 200,
         eps_start: float = 1,
         eps_decay: float = 0.9999,
         eps_end = 0.02,
@@ -104,12 +104,11 @@ class RainbowLightning(pl.LightningModule):
         self.target_net.eval()
         self.use_noisy = False
         
-        self.is_test = False
-        self.agent = Agent(self.env, self.buffer, self.use_n_step, self.buffer_n)
-        self.test_agent = Agent(self.test_env, self.buffer, self.use_n_step, self.buffer_n)
+        self.agent = Agent(self.env, self.buffer, self.use_n_step, self.buffer_n, self.episode_length)
         
         self.episode_reward: int = 0
         self.curr_reward: int = 0
+        self.total_steps: int = 0
         self.total_episodes: int = 0
         self.last_test_reward: int = 0
         self.last_episode_reward: int = 0
@@ -136,7 +135,7 @@ class RainbowLightning(pl.LightningModule):
         durations = []
         for episode in range(n_episodes):
             
-            self.test_env.reset()
+            self.agent.reset()
             done = False
             episode_reward = 0
             
@@ -145,8 +144,9 @@ class RainbowLightning(pl.LightningModule):
             
             while not done:
                 reward, done = self.agent.play_step(self.net, 0, self.device)
+                self.net.reset_noise() 
                 episode_reward += reward
-                frame = self.env.render('rgb_array')
+                frame = self.env.render(mode='rgb_array')
                 frame = np.array(frame)
                 if self.save_video:
                     frames.append(frame)
@@ -221,16 +221,10 @@ class RainbowLightning(pl.LightningModule):
         return super().on_train_start()
     
     def training_step(self, batch: Tuple[Tensor, Tensor], nb_batch) -> OrderedDict:
-        # self.log("epsilon", self.eps, prog_bar=True)
         self.log("lr", self.lr, prog_bar=True)
-        # if self.use_noisy:
-        #     reward, done = self.agent.play_step(self.net, 0, self.device)
-        # else:
-        #     reward, done = self.agent.play_step(self.net, self.eps, self.device)
-        #     self.eps = max(self.eps_end, self.eps_decay * self.eps)
-        #     if self.eps == self.eps_end:
-        #         self.use_noisy = True
         reward, done = self.agent.play_step(self.net, 0, self.device)  
+        self.total_steps += 1
+        self.log("total_steps", self.total_steps, prog_bar=True)
         self.curr_reward += reward
         self.log("curr_reward", self.curr_reward, prog_bar=True)
         if self.use_n_step:
@@ -244,16 +238,13 @@ class RainbowLightning(pl.LightningModule):
             loss = loss.unsqueeze(0)
         
         # Soft update of target network
-        if self.global_step % self.target_update == 0: # 10 step = 250 global steps
+        if self.total_steps % self.target_update == 0: # 10 step = 250 global steps
             self.target_net.load_state_dict(self.net.state_dict())
         
-        if done:
+        episode_end = done or self.total_steps % self.episode_length == 0
+        
+        if episode_end:
             self.total_episodes += 1
-            if self.total_episodes % self.video_rate == 0:
-                print("Testing...")
-                test_rewards = self.run_n_episodes(self.test_env, 1, 0)
-                self.last_test_reward = sum(test_rewards) / len(test_rewards)
-                self.log("last_test_reward", self.last_test_reward, on_epoch=True)
             self.episode_reward = self.curr_reward
             self.log("episode_reward", self.episode_reward, on_epoch=True)
             self.curr_reward = 0
@@ -276,6 +267,11 @@ class RainbowLightning(pl.LightningModule):
         return loss
     
     def on_train_batch_end(self, outputs, batch, batch_idx: int, unused: int = 0) -> None:
+        if self.total_steps % self.video_rate == 0:
+            print("Testing...")
+            test_rewards = self.run_n_episodes(self.test_env, 1, 0)
+            self.last_test_reward = sum(test_rewards) / len(test_rewards)
+            self.log("last_test_reward", self.last_test_reward, on_epoch=True)
         self.net.reset_noise()
         self.target_net.reset_noise()
     
@@ -302,7 +298,7 @@ class RainbowLightning(pl.LightningModule):
     
     def configure_optimizers(self) -> List[Optimizer]:
         """Initialize Adam optimizer."""
-        optimizer = Adam(self.net.parameters(), lr=self.lr, eps=1.5e-4)
+        optimizer = Adam(self.net.parameters(), lr=self.lr, eps=1.5e-4, capturable=True)
         return {
             "optimizer": optimizer,
             "lr_scheduler": {
