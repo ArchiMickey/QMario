@@ -305,7 +305,7 @@ class RainbowLightning(pl.LightningModule):
     
     def configure_optimizers(self) -> List[Optimizer]:
         """Initialize Adam optimizer."""
-        optimizer = Adam(self.net.parameters(), lr=self.lr, eps=1.5e-4)
+        optimizer = Adam(self.net.parameters(), lr=self.lr, eps=1.5e-4, capturable=True)
         return {
             "optimizer": optimizer,
             "lr_scheduler": {

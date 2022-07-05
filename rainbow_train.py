@@ -16,6 +16,7 @@ checkpoint_callback = ModelCheckpoint(
 
 # 1 training step = 2.5 global step
 Model = RainbowLightning(
+    env='SuperMarioBros-1-1-v0',
     batch_size=32,
     lr=6.25e-5,
     min_lr=6.25e-5,

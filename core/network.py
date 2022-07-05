@@ -265,6 +265,7 @@ class RainbowDQN(nn.Module):
             nn.ReLU(),
             nn.Conv2d(in_channels=32, out_channels=32, kernel_size=3, stride=2, padding=1),
             nn.ReLU(),
+            nn.Flatten(),
         )
         
         conv_out_size = self._get_conv_out(in_dim)
