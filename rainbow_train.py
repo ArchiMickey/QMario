@@ -32,7 +32,7 @@ Model = RainbowLightning(
     n_step=3,
     save_video=True,
     fps=24,
-    video_rate=5000,
+    video_rate=10000,
 )
 
 
@@ -45,7 +45,7 @@ wandb_logger.watch(Model)
 trainer = pl.Trainer(
     accelerator="gpu",
     devices = 1 if torch.cuda.is_available() else None,
-    max_epochs=600000000,
+    max_steps=2000000,
     logger=wandb_logger,
     log_every_n_steps=5,
     gradient_clip_val= 10.0,
@@ -54,4 +54,4 @@ trainer = pl.Trainer(
 )
 
 # trainer.tune(Model)
-trainer.fit(Model, ckpt_path="model/qmario-episode_reward=195.75.ckpt")
+trainer.fit(Model)
