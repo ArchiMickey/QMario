@@ -7,41 +7,37 @@ from datetime import datetime
 
 checkpoint_callback = ModelCheckpoint(
     save_top_k=3,
-    monitor="episode_reward",
+    monitor="test_reward",
     mode="max",
     dirpath="model/",
-    filename="qmario-{episode_reward}",
+    filename="qmario-{test_reward:.2f}-{step}",
     every_n_train_steps=1000,
 )
 
 # 1 training step = 2.5 global step
-Model = RainbowLightning(
+model = RainbowLightning(
     env='SuperMarioBros-1-1-v0',
     batch_size=32,
     lr=6.25e-5,
     min_lr=6.25e-5,
     gamma=0.9,
-    target_update=10000,
+    target_update=8000,
     memory_size=100000,
-    episode_length=350,
+    episode_length=500,
     sigma=0.5,
     alpha=0.5,
     beta=0.4,
     v_min=-10,
     v_max=10,
     atom_size=51,
-    n_step=3,
+    n_step=5,
     save_video=True,
     fps=24,
-    video_rate=10000,
+    test_episode_interval=20,
 )
 
-
-
 now_dt = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
-
 wandb_logger = WandbLogger(name=f"qMario-rainbow-{now_dt}")
-wandb_logger.watch(Model)
 
 trainer = pl.Trainer(
     accelerator="gpu",
@@ -54,5 +50,4 @@ trainer = pl.Trainer(
     callbacks=[checkpoint_callback, LearningRateMonitor(logging_interval='step')],
 )
 
-# trainer.tune(Model)
-trainer.fit(Model)
+trainer.fit(model)
