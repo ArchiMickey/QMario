@@ -1,7 +1,7 @@
 checkpoints
 __pycache__/
 lightning_logs
-*.ckpt
+model
 wandb
 test_video
 train_video
