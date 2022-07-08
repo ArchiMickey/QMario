@@ -1,3 +1,4 @@
+from collections import deque
 import numpy as np
 import pytorch_lightning as pl
 import torch
@@ -45,10 +46,12 @@ class RainbowLightning(pl.LightningModule):
         atom_size: int = 51,
         # N-step Learning
         n_step: int = 1,
-        # Video loggint
+        # Video logging
         save_video: bool = False,
         fps: int = 20,
-        video_rate: int = 50,
+        # Logging
+        avg_cut_off: int = 100,
+        test_episode_interval: int = 20,
     ) -> None:
         super().__init__()
         
@@ -73,7 +76,8 @@ class RainbowLightning(pl.LightningModule):
         self.n_step = n_step
         self.save_video = save_video
         self.fps = fps
-        self.video_rate = video_rate
+        self.avg_cut_off = avg_cut_off
+        self.test_episode_interval = test_episode_interval
         
         self.save_hyperparameters()
                 
@@ -102,12 +106,17 @@ class RainbowLightning(pl.LightningModule):
         
         self.agent = Agent(self.env, self.buffer, self.use_n_step, self.buffer_n, self.episode_length)
         
-        self.episode_reward: int = 0
+        self.test_rewards = deque(maxlen=self.avg_cut_off)
+        self.episode_rewards = deque(maxlen=self.avg_cut_off)
+        for _ in range(self.avg_cut_off):
+            self.test_rewards.append(0)
+            self.episode_rewards.append(0)
+        
         self.curr_reward: int = 0
         self.curr_episode_step: int = 0
         self.total_steps: int = 0
         self.total_episodes: int = 0
-        self.last_test_reward: int = 0
+        
         self.last_episode_reward: int = 0
             
     def populate(self):
@@ -120,48 +129,44 @@ class RainbowLightning(pl.LightningModule):
             self.agent.play_step(self.net, 0, self.device)
         self.agent.reset()
     
-    def run_n_episodes(self, env, n_episodes: int = 1, epsilon: float = 1.0) -> List[int]:
+    def run_1_episode(self) -> float:
         """Carries out N episodes of the environment with the current agent.
         Args:
             env: environment to use, either train environment or test environment
             n_epsiodes: number of episodes to run
             epsilon: epsilon value for DQN agent
         """
-        total_rewards = []
         frames = []
         durations = []
-        for episode in range(n_episodes):
             
-            self.agent.reset()
-            done = False
-            episode_reward = 0
-            episode_end = False
-            step = 0
-            
-            frames.clear()
-            durations.clear()
-            
-            while not episode_end:
-                reward, done = self.agent.play_step(self.net, 0, self.device)
-                step += 1
-                episode_end = done or step % self.episode_length == 0
-                self.net.reset_noise() 
-                episode_reward += reward
-                frame = self.env.render(mode='rgb_array')
-                frame = np.array(frame)
-                if self.save_video:
-                    frames.append(frame)
-                    durations.append(1/self.fps)
-
+        self.agent.reset()
+        episode_end = False
+        episode_reward = 0
+        episode_end = False
+        step = 0
+        
+        frames.clear()
+        durations.clear()
+        
+        while not episode_end:
+            reward, done = self.agent.play_step(self.net, 0, self.device)
+            step += 1
+            episode_end = done or step % self.episode_length == 0
+            episode_reward += reward
+            frame = self.env.render(mode='rgb_array')
+            frame = np.array(frame)
             if self.save_video:
-                log_video(frames, durations, self.total_steps, episode_reward, self.fps)
-            self.test_env.reset()
-            total_rewards.append(episode_reward)
+                frames.append(frame)
+                durations.append(1/self.fps)
 
-            frames.clear()
-            durations.clear()
+        if self.save_video:
+            log_video(frames, durations, self.total_steps, episode_reward, self.fps)
+        
+        self.test_env.reset()
+        frames.clear()
+        durations.clear()
 
-        return total_rewards
+        return episode_reward
         
     def forward(self, state: Tensor):
         return self.net(state).float()
@@ -225,8 +230,7 @@ class RainbowLightning(pl.LightningModule):
         return super().on_train_start()
     
     def training_step(self, batch: Tuple[Tensor, Tensor], nb_batch) -> OrderedDict:
-        self.log("lr", self.lr, prog_bar=True)
-        reward, done = self.agent.play_step(self.net, 0, self.device)  
+        reward, done = self.agent.play_step(self.net, 0, self.device)
         self.total_steps += 1
         self.curr_episode_step += 1
         self.log("total_steps", self.total_steps, prog_bar=True)
@@ -243,17 +247,26 @@ class RainbowLightning(pl.LightningModule):
             loss = loss.unsqueeze(0)
         
         # Soft update of target network
-        if self.total_steps % self.target_update == 0: # 10 step = 250 global steps
+        if self.total_steps % self.target_update == 0:
             self.target_net.load_state_dict(self.net.state_dict())
         
         episode_end = done or self.curr_episode_step % self.episode_length == 0
         
         if episode_end:
             self.total_episodes += 1
-            self.episode_reward = self.curr_reward
-            self.log("episode_reward", self.episode_reward, on_epoch=True)
+            self.episode_rewards.append(self.curr_reward)
+            self.log("episode_reward", self.curr_reward)
+            self.log("avg_episode_reward", np.mean(self.episode_rewards))
             self.curr_reward = 0
             self.curr_episode_step = 0
+            
+            if self.total_episodes % self.test_episode_interval == 0:
+                print("Testing...")
+                self.run_1_episode()
+                test_reward = self.run_1_episode()
+                self.test_rewards.append(test_reward)
+                self.log("test_reward", test_reward)
+                self.log("avg_test_reward", np.mean(self.test_rewards))
             
         self.log("curr_reward", self.curr_reward, prog_bar=True)
         self.log("total_episodes", self.total_episodes, prog_bar=True)
@@ -274,17 +287,12 @@ class RainbowLightning(pl.LightningModule):
         return loss
     
     def on_train_batch_end(self, outputs, batch, batch_idx: int, unused: int = 0) -> None:
-        if self.total_steps % self.video_rate == 0:
-            print("Testing...")
-            test_rewards = self.run_n_episodes(self.test_env, 1, 0)
-            self.last_test_reward = sum(test_rewards) / len(test_rewards)
-            self.log("last_test_reward", self.last_test_reward, on_epoch=True)
         self.net.reset_noise()
         self.target_net.reset_noise()
     
     def test_step(self, *args, **kwargs) -> Dict[str, Tensor]:
         """Evaluate the agent for 10 episodes."""
-        test_reward = self.run_n_episodes(self.test_env, 10, 0)
+        test_reward = self.run_1_episode(self.test_env, 10, 0)
         avg_reward = sum(test_reward) / len(test_reward)
         return {"test_reward": avg_reward}
 
