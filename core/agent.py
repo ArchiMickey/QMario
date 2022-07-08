@@ -61,7 +61,7 @@ class Agent:
             else:
                 reward -= 50
         
-        reward /= 10.
+        reward = np.clip(reward / 25, -1, 1)
         
         exp = Experience(self.state, action, reward, done, new_state)
         if self.use_n_step:
