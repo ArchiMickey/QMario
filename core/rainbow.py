@@ -58,6 +58,7 @@ class RainbowLightning(pl.LightningModule):
         self.batch_size = batch_size
         self.lr = lr
         self.min_lr = min_lr
+        self.env_name = env
         self.gamma = gamma
         self.target_update = target_update
         self.memory_size = memory_size
@@ -160,7 +161,7 @@ class RainbowLightning(pl.LightningModule):
                 durations.append(1/self.fps)
 
         if self.save_video:
-            log_video(frames, durations, self.total_steps, episode_reward, self.fps)
+            log_video(self.env_name, frames, durations, self.total_steps, episode_reward, self.fps)
         
         self.test_env.reset()
         frames.clear()

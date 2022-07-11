@@ -16,11 +16,11 @@ checkpoint_callback = ModelCheckpoint(
 
 # 1 training step = 2.5 global step
 model = RainbowLightning(
-    env='SuperMarioBros-1-1-v0',
+    env='SuperMarioBros-1-2-v0',
     batch_size=32,
     lr=6.25e-5,
     min_lr=6.25e-5,
-    gamma=0.9,
+    gamma=0.99,
     target_update=8000,
     memory_size=100000,
     episode_length=500,
@@ -37,7 +37,7 @@ model = RainbowLightning(
 )
 
 now_dt = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
-wandb_logger = WandbLogger(name=f"qMario-rainbow-{now_dt}")
+wandb_logger = WandbLogger(name=f"qMario-{model.env_name}-rainbow-{now_dt}")
 
 trainer = pl.Trainer(
     accelerator="gpu",
